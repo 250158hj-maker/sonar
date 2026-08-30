@@ -1,0 +1,1189 @@
+@charset "utf-8";
+
+/* =============================================================
+   グラデーションに使う色を @property で登録する。
+   -------------------------------------------------------------
+   CSS の linear-gradient は通常アニメーションしない（background-image は
+   補間対象外）。色そのものをカスタムプロパティとして型付き登録すると
+   補間できるようになり、テーマ切り替えと水深の変化が滑らかに繋がる。
+   ============================================================= */
+@property --w0 { syntax: "<color>"; inherits: true; initial-value: #f4f8fa; }
+@property --w1 { syntax: "<color>"; inherits: true; initial-value: #dde9ef; }
+/* 深さ（0〜1の連続量）。地図のノードも対話画面の背景もこれ1つで決まる。
+   <number> として登録することで、色ではなく深さそのものを補間できる。 */
+@property --t { syntax: "<number>"; inherits: true; initial-value: 0; }
+
+/* 対話画面の水深：浅い端（a0→b0）と深い端（a1→b1）の2組だけを持つ。
+   あいだは --t で補間するので、段が無く、何ターン続いても頭打ちしない。 */
+@property --td-a0 { syntax: "<color>"; inherits: true; initial-value: #f4f8fa; }
+@property --td-b0 { syntax: "<color>"; inherits: true; initial-value: #dde9ef; }
+@property --td-a1 { syntax: "<color>"; inherits: true; initial-value: #b3cdd8; }
+@property --td-b1 { syntax: "<color>"; inherits: true; initial-value: #8aafc0; }
+@property --mapbg-a { syntax: "<color>"; inherits: true; initial-value: #dde9ef; }
+@property --mapbg-b { syntax: "<color>"; inherits: true; initial-value: #8aafc0; }
+@property --chart-top { syntax: "<color>"; inherits: true; initial-value: #eef5f8; }
+@property --chart-mid { syntax: "<color>"; inherits: true; initial-value: #c3dae3; }
+@property --chart-bot { syntax: "<color>"; inherits: true; initial-value: #8fb3c4; }
+
+/* =============================================================
+   Sonar モック画面 共通スタイル
+   -------------------------------------------------------------
+   デザインの軸：「深さ」
+   ソナー＝音を出して深さを測る装置、というメタファーに合わせ、
+   画面の上を「浅瀬」、下を「深海」として、上から下へ深くする。
+   会話を掘り下げるほど背景も深くなる（talk.html）。
+
+   ライト／ダークは画面ごとに固定せず、ユーザーが選ぶ。
+   「深さ＝暗さ」は明暗の絶対値ではなく**相対的な水深ランプ**として
+   扱うので、どちらのモードでも降りていく感覚は保たれる。
+     ライト：ほぼ白 → 中程度の青
+     ダーク：藍     → ほぼ黒
+
+   どちらのテーマかは各HTMLの <head> のスクリプトが
+   data-theme に必ず書き込む（端末設定の解決もそこで済ませる）。
+   おかげでCSS側は :root と :root[data-theme="dark"] の2ブロックで済み、
+   同じ値を @media 版と属性版に二重管理しなくてよくなっている。
+   ============================================================= */
+
+/* -------------------------------------------------------------
+   ライト（既定）
+   ------------------------------------------------------------- */
+:root {
+	/* 水深ランプ：浅い → 深い */
+	--w0: #f4f8fa;
+	--w1: #dde9ef;
+
+	/* 文字 */
+	--ink: #0d2029;
+	--ink-mute: #5b7684;
+
+	/* 面 */
+	--surface: #ffffff;
+	--surface-soft: rgba(255, 255, 255, 0.72);
+	--line: rgba(13, 32, 41, 0.18);
+	--shadow: 0 2px 20px rgba(13, 32, 41, 0.09);
+	--shadow-lift: 0 6px 28px rgba(13, 32, 41, 0.14);
+	--shadow-card: 0 16px 50px rgba(13, 32, 41, 0.22);
+
+	/* ソナーの反響 */
+	--ping: #2f93a6;
+	--ping-dim: rgba(47, 147, 166, 0.3);
+	--tint: rgba(47, 147, 166, 0.12);
+
+	/* 対話画面の水深背景：浅い端と深い端だけ。あいだは --t で補間する */
+	--td-a0: #f4f8fa;
+	--td-b0: #dde9ef;
+	--td-a1: #b3cdd8;
+	--td-b1: #8aafc0;
+
+	/* 地図 */
+	--mapbg-a: #dde9ef;
+	--mapbg-b: #8aafc0;
+	--chart-top: #eef5f8;
+	--chart-mid: #c3dae3;
+	--chart-bot: #8fb3c4;
+	--map-line: rgba(13, 32, 41, 0.2);
+	--map-axis: rgba(13, 32, 41, 0.32);
+	--map-edge: rgba(13, 32, 41, 0.34);
+	--map-chrome: rgba(13, 32, 41, 0.7);
+	--btn-bg: rgba(13, 32, 41, 0.08);
+	--btn-bg-hover: rgba(13, 32, 41, 0.16);
+	--btn-border: rgba(13, 32, 41, 0.24);
+	--btn-ink: #0d2029;
+
+	/* 深さのランプ。浅い＝淡く冷たい、深い＝暖かい。
+	   **段ではなく連続量**として持つ（→ .depth）。 */
+	--d-root: #17323f;
+	--d-shallow: #7d99a7;
+	--d-mid: #2f93a6;
+	--d-deep: #dd9a3c;
+	--dot-edge: rgba(255, 255, 255, 0.7);
+
+	--radius: 14px;
+	--maxw: 720px;
+}
+
+/* -------------------------------------------------------------
+   ダーク
+   ------------------------------------------------------------- */
+:root[data-theme="dark"] {
+	--w0: #16303d;
+	--w1: #102734;
+
+	--ink: #eef6f9;
+	--ink-mute: rgba(238, 246, 249, 0.62);
+
+	--surface: #16323f;
+	--surface-soft: rgba(255, 255, 255, 0.07);
+	--line: rgba(238, 246, 249, 0.18);
+	--shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
+	--shadow-lift: 0 6px 28px rgba(0, 0, 0, 0.5);
+	--shadow-card: 0 16px 50px rgba(0, 0, 0, 0.5);
+
+	--ping: #4fb3c4;
+	--ping-dim: rgba(79, 179, 196, 0.3);
+	--tint: rgba(79, 179, 196, 0.14);
+
+	--td-a0: #1b3442;
+	--td-b0: #102734;
+	--td-a1: #102734;
+	--td-b1: #040d14;
+
+	--mapbg-a: #17333f;
+	--mapbg-b: #061019;
+	--chart-top: #31596d;
+	--chart-mid: #12303e;
+	--chart-bot: #040d14;
+	--map-line: rgba(255, 255, 255, 0.16);
+	--map-axis: rgba(255, 255, 255, 0.28);
+	--map-edge: rgba(255, 255, 255, 0.3);
+	--map-chrome: rgba(255, 255, 255, 0.75);
+	--btn-bg: rgba(255, 255, 255, 0.14);
+	--btn-bg-hover: rgba(255, 255, 255, 0.26);
+	--btn-border: rgba(255, 255, 255, 0.32);
+	--btn-ink: #ffffff;
+
+	--d-root: #ffffff;
+	--d-shallow: #93a9b4;
+	--d-mid: #4fb3c4;
+	--d-deep: #f2b872;
+	--dot-edge: rgba(8, 22, 31, 0.55);
+}
+
+/* =============================================================
+   深さ → 色
+   -------------------------------------------------------------
+   深さに上限は無い（2回で着くこともあれば9回かけても届かない
+   こともある）ので、色も段で切らずに連続量として作る。
+
+   JS が --t（0〜1、1に漸近して到達しない）を入れ、
+   ここで 淡い青灰 → シアン → 琥珀 の3点を折れ線で補間する。
+   **色そのものはテーマのトークンから取るので、JSは色を持たない。**
+   ============================================================= */
+.node,
+.wrap li,
+.detail,
+.pv {
+	--_ramp: color-mix(in oklab,
+		var(--d-mid) calc(clamp(0, var(--t, 0) * 2, 1) * 100%), var(--d-shallow));
+	--c: color-mix(in oklab,
+		var(--d-deep) calc(clamp(0, var(--t, 0) * 2 - 1, 1) * 100%), var(--_ramp));
+}
+
+/* 根（わたし）だけは深さの外にあるので、ランプに乗せない */
+.node[data-depth="0"] {
+	--c: var(--d-root);
+}
+
+/* =============================================================
+   テーマ切り替えのアニメーション
+   -------------------------------------------------------------
+   登録済みの色プロパティを補間するので、グラデーションも滑らかに移る。
+   対話画面の水深変化（--t）も同じ仕組みなので、
+   テーマ切り替えと深さの変化が同じ速度・同じ質感になる。
+   ============================================================= */
+:root {
+	transition: --w0 0.8s ease, --w1 0.8s ease,
+		--td-a0 0.8s ease, --td-b0 0.8s ease, --td-a1 0.8s ease, --td-b1 0.8s ease,
+		--mapbg-a 0.8s ease, --mapbg-b 0.8s ease,
+		--chart-top 0.8s ease, --chart-mid 0.8s ease, --chart-bot 0.8s ease;
+}
+
+body,
+.head__name,
+.head__nav a,
+.start,
+.stat,
+.empty,
+.preview,
+.mood__chip,
+.compose,
+.compose textarea,
+.wrap,
+.wrap li,
+.detail,
+.detail__q,
+.nav,
+.reset,
+.themetoggle,
+.hint,
+.chart__label,
+.chart__band,
+.chart__rule,
+.chart__axis,
+.edge,
+.node__dot,
+.node__halo {
+	transition-property: background-color, background-image, color, fill, stroke,
+		border-color, box-shadow, opacity;
+	transition-duration: 0.55s;
+	transition-timing-function: ease;
+}
+
+/* ノードの輪はホバー反応も担うので、そちらは速いままにする */
+.node__halo {
+	transition: opacity 0.3s ease, stroke-width 0.3s ease, stroke 0.55s ease;
+}
+
+.chart__label {
+	transition: opacity 0.25s ease, fill 0.55s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root,
+	body,
+	.chart__label,
+	.node__halo {
+		transition: none;
+	}
+}
+
+/* ---------- リセット ---------- */
+* {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+body {
+	font-family: "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+	color: var(--ink);
+	line-height: 1.75;
+	min-height: 100dvh;
+	-webkit-font-smoothing: antialiased;
+}
+
+a {
+	color: inherit;
+}
+
+button {
+	font: inherit;
+	cursor: pointer;
+	border: none;
+	background: none;
+	color: inherit;
+}
+
+/* ---------- 共通ヘッダー ---------- */
+.head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 18px 24px;
+	max-width: var(--maxw);
+	margin: 0 auto;
+	width: 100%;
+}
+
+.head__brand {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	text-decoration: none;
+}
+
+.head__name {
+	font-size: 19px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	color: var(--ink);
+}
+
+.head__nav {
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	font-size: 13px;
+}
+
+.head__nav a {
+	text-decoration: none;
+	color: var(--ink-mute);
+	padding-bottom: 2px;
+	border-bottom: 1px solid transparent;
+}
+
+.head__nav a:hover,
+.head__nav a[aria-current="page"] {
+	color: var(--ink);
+	border-bottom-color: var(--ping);
+}
+
+/* ---------- 表示モードの切り替え ----------
+   画面ごとに明暗を強制せず、本人が選ぶ。
+   選択は localStorage に残し、未選択なら端末設定に従う。 */
+.themetoggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	color: var(--ink-mute);
+	transition: color 0.16s ease, background 0.16s ease;
+}
+
+.themetoggle:hover {
+	color: var(--ink);
+	background: var(--btn-bg);
+}
+
+.themetoggle:focus-visible {
+	outline: 2px solid var(--ping);
+	outline-offset: 2px;
+}
+
+.themetoggle svg {
+	width: 18px;
+	height: 18px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.7;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* 押すと切り替わる先のアイコンを出す。
+   ライトのときは月（＝ダークへ）、ダークのときは太陽（＝ライトへ）。 */
+.themetoggle__sun {
+	display: none;
+}
+
+:root[data-theme="dark"] .themetoggle__sun {
+	display: block;
+}
+
+:root[data-theme="dark"] .themetoggle__moon {
+	display: none;
+}
+
+/* =============================================================
+   ホーム（index.html）
+   ============================================================= */
+.home {
+	background: linear-gradient(180deg, var(--w0) 0%, var(--w1) 100%);
+}
+
+.home__main {
+	max-width: var(--maxw);
+	margin: 0 auto;
+	padding: 32px 24px 72px;
+}
+
+/* 入口は1アクション。「話す」以外の選択肢を目立たせない */
+.start {
+	position: relative;
+	display: block;
+	width: 100%;
+	padding: 40px 24px;
+	margin: 8px 0 40px;
+	border-radius: var(--radius);
+	background: var(--surface);
+	box-shadow: var(--shadow);
+	text-align: center;
+	text-decoration: none;
+	overflow: hidden;
+	transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.start:hover {
+	transform: translateY(-2px);
+	box-shadow: var(--shadow-lift);
+}
+
+.start__label {
+	position: relative;
+	font-size: 26px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+}
+
+.start__note {
+	position: relative;
+	display: block;
+	margin-top: 8px;
+	font-size: 13px;
+	color: var(--ink-mute);
+}
+
+/* ソナーの発信音を模した同心円 */
+.start__ping {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 70px;
+	height: 70px;
+	margin: -35px 0 0 -35px;
+	border: 1px solid var(--ping);
+	border-radius: 50%;
+	opacity: 0;
+	animation: ping 3.4s ease-out infinite;
+}
+
+.start__ping:nth-of-type(2) {
+	animation-delay: 1.1s;
+}
+.start__ping:nth-of-type(3) {
+	animation-delay: 2.2s;
+}
+
+@keyframes ping {
+	0% {
+		transform: scale(0.5);
+		opacity: 0.5;
+	}
+	100% {
+		transform: scale(6);
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.start__ping {
+		animation: none;
+	}
+}
+
+.sec__title {
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	color: var(--ink-mute);
+	margin-bottom: 12px;
+}
+
+/* これまでの記録 */
+.stats {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 12px;
+	margin-bottom: 36px;
+}
+
+.stat {
+	background: var(--surface-soft);
+	border-radius: 10px;
+	padding: 16px;
+	text-align: center;
+}
+
+.stat__num {
+	display: block;
+	font-size: 28px;
+	font-weight: 700;
+	line-height: 1.2;
+}
+
+.stat__label {
+	font-size: 11px;
+	color: var(--ink-mute);
+}
+
+/* 地図のミニプレビュー */
+.preview {
+	display: block;
+	background: linear-gradient(180deg, var(--chart-top) 0%, var(--chart-bot) 100%);
+	border-radius: var(--radius);
+	padding: 4px;
+	text-decoration: none;
+	box-shadow: var(--shadow);
+}
+
+.preview svg {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 11px;
+}
+
+.preview__cap {
+	display: block;
+	padding: 10px 14px 8px;
+	font-size: 12px;
+	color: var(--map-chrome);
+	text-align: right;
+}
+
+/* ホームの地図プレビュー。色は地図本体と同じランプを使う */
+.pv {
+	fill: var(--c);
+}
+.pv-edge {
+	stroke: var(--map-edge);
+	stroke-width: 1.4;
+	fill: none;
+}
+.pv-rule {
+	stroke: var(--map-line);
+}
+
+/* 記録がゼロのときの見え方（初回起動時） */
+.empty {
+	background: var(--surface-soft);
+	border-radius: var(--radius);
+	padding: 28px 24px;
+	text-align: center;
+	color: var(--ink-mute);
+	font-size: 14px;
+}
+
+/* =============================================================
+   対話画面（talk.html）
+   -------------------------------------------------------------
+   チャットアプリに見せない。AIの発話は「問い」だけで相槌が無いため、
+   吹き出しの往復で組むと尋問に見える。
+   そこで「問いが1つ、静かに現れる」構成にし、
+   済んだやりとりは上へ沈んでいく（＝深く潜る）表現にする。
+   ============================================================= */
+.talk {
+	/* 水深は --t（0〜1の連続量）だけで決まる。段は無い。
+	   地図のノードと同じ depthT() から来るので、対話画面と地図で
+	   深さの表し方が1つに揃っている（2026-08-30 統一）。 */
+	background: linear-gradient(180deg,
+		color-mix(in oklab, var(--td-a1) calc(var(--t) * 100%), var(--td-a0)) 0%,
+		color-mix(in oklab, var(--td-b1) calc(var(--t) * 100%), var(--td-b0)) 100%);
+	transition: --t 0.8s ease;
+	display: flex;
+	flex-direction: column;
+	/* 100vh はアドレスバーの高さを含むので、入力欄が画面外へ落ちる。
+	   実際に見えている高さ（dvh）で組む。 */
+	height: 100dvh;
+}
+
+.talk__log {
+	flex: 1;
+	overflow-y: auto;
+	padding: 8px 24px 0;
+	display: flex;
+	flex-direction: column;
+}
+
+/* margin-top:auto で中身を下端に寄せる。
+   現在の問いが入力欄のすぐ上に来て、済んだやりとりが上へ押し上げられる
+   ＝「沈んでいく」表現になる。
+   中身が増えて溢れたら auto は潰れ、通常のスクロールに戻る。 */
+.talk__inner {
+	max-width: var(--maxw);
+	margin: auto auto 0;
+	width: 100%;
+	padding-bottom: 24px;
+}
+
+/* 済んだやりとり：小さく、薄く＝沈んでいる */
+.past {
+	margin-bottom: 26px;
+	opacity: 0.55;
+}
+
+.past__q {
+	font-size: 13px;
+	color: inherit;
+	opacity: 0.75;
+	margin-bottom: 4px;
+}
+
+.past__a {
+	font-size: 15px;
+	font-weight: 600;
+	padding-left: 12px;
+	border-left: 2px solid var(--ping-dim);
+}
+
+/* 入口の気分選択。問いと同じ大きさ・同じ位置に出す。
+   「フォームに記入させられる」ではなく「最初の問いに答える」ように見せるため。 */
+.mood {
+	margin: 40px 0 24px;
+}
+
+.mood__q {
+	font-size: 22px;
+	font-weight: 700;
+	line-height: 1.85;
+	margin-bottom: 22px;
+}
+
+.mood__list {
+	list-style: none;
+	display: grid;
+	gap: 10px;
+	margin-bottom: 16px;
+}
+
+.mood__chip {
+	width: 100%;
+	text-align: left;
+	padding: 15px 18px;
+	border-radius: 12px;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	color: var(--ink);
+	font-size: 16px;
+	font-weight: 600;
+	transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.mood__chip:hover {
+	border-color: var(--ping);
+	transform: translateX(3px);
+}
+
+.mood__chip:focus-visible {
+	outline: 2px solid var(--ping);
+	outline-offset: 2px;
+}
+
+/* 現在の問い：大きく、静かに */
+.now {
+	margin: 40px 0 24px;
+}
+
+.now__q {
+	font-size: 22px;
+	font-weight: 700;
+	line-height: 1.85;
+	letter-spacing: 0.01em;
+	min-height: 2em;
+}
+
+/* 逐次表示（SSE）中に出るカーソル */
+.caret {
+	display: inline-block;
+	width: 2px;
+	height: 1em;
+	background: var(--ping);
+	vertical-align: text-bottom;
+	animation: blink 1s steps(2) infinite;
+}
+
+@keyframes blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+/* 入力欄 */
+.compose {
+	border-top: 1px solid var(--line);
+	padding: 14px 24px 20px;
+}
+
+.compose__inner {
+	max-width: var(--maxw);
+	margin: 0 auto;
+}
+
+.compose__row {
+	display: flex;
+	gap: 10px;
+	align-items: flex-end;
+}
+
+.compose textarea {
+	flex: 1;
+	font: inherit;
+	line-height: 1.6;
+	resize: none;
+	padding: 12px 14px;
+	border-radius: 10px;
+	border: 1px solid var(--line);
+	background: var(--surface);
+	color: var(--ink);
+	min-height: 52px;
+	max-height: 140px;
+}
+
+.compose textarea:focus {
+	outline: 2px solid var(--ping);
+	outline-offset: -1px;
+}
+
+.send {
+	padding: 14px 22px;
+	border-radius: 10px;
+	background: var(--ping);
+	color: #06222a;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.send:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+/* 「ここまでにする」は常に見える位置に。
+   深さを強制しない方針なので、離脱を後ろめたくさせない文言にする */
+.compose__foot {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-top: 10px;
+	font-size: 12px;
+	opacity: 0.8;
+}
+
+.stop {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+/* 会話終了後のまとめ */
+.wrap {
+	max-width: var(--maxw);
+	margin: 40px auto;
+	background: var(--surface);
+	color: var(--ink);
+	border-radius: var(--radius);
+	padding: 28px 26px;
+}
+
+.wrap h2 {
+	font-size: 16px;
+	margin-bottom: 6px;
+}
+
+.wrap p {
+	font-size: 13px;
+	color: var(--ink-mute);
+	margin-bottom: 16px;
+}
+
+.wrap ul {
+	list-style: none;
+	margin-bottom: 22px;
+}
+
+/* 縦軸が無い場所なので、深さは「字下げ」と「色」で示す。
+   どちらも --depth / --t から計算するので**段数の上限が無い**。 */
+.wrap li {
+	padding: 9px 0 9px calc(26px + (var(--depth, 1) - 1) * 18px);
+	position: relative;
+	border-bottom: 1px solid var(--line);
+	font-size: 15px;
+}
+
+.wrap li::before {
+	content: "";
+	position: absolute;
+	left: calc(6px + (var(--depth, 1) - 1) * 18px);
+	top: 19px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--c);
+}
+
+.btn {
+	display: inline-block;
+	padding: 12px 20px;
+	border-radius: 10px;
+	background: var(--ping);
+	color: #06222a;
+	font-weight: 700;
+	text-decoration: none;
+	font-size: 14px;
+}
+
+.hidden {
+	display: none !important;
+}
+
+/* =============================================================
+   マインドマップ（map.html）
+   -------------------------------------------------------------
+   地図は画面いっぱいに置く。余白を作らず、地図そのものをページにする。
+
+   会話が増えても壊れないように、**会話単位で畳む**。
+   全体表示に出るのは各会話の1手目だけなので、
+   1画面の点の数は「ノード総数」ではなく「会話数」で決まる。
+   ============================================================= */
+.map {
+	background: linear-gradient(180deg, var(--mapbg-a) 0%, var(--mapbg-b) 100%);
+	color: var(--ink);
+	height: 100dvh;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+/* ヘッダーはホーム・対話画面と同じ扱いにする。
+   幅も配置も共通の .head に任せ、地図側で上書きしない。 */
+.map .head {
+	flex: 0 0 auto;
+	position: relative;
+	z-index: 2;
+}
+
+/* 地図の置き場。ヘッダー以外の全部を使う。
+   --s は「画面1pxが何ユーザー単位にあたるか」。JSが毎回書き込む。 */
+.stage {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	--s: 1;
+}
+
+.chart {
+	display: block;
+	width: 100%;
+	height: 100%;
+	cursor: grab;
+	/* 指で地図を動かせるように、ブラウザ既定のスクロールを止める */
+	touch-action: none;
+	/* ドラッグでラベルが選択されてしまうのを防ぐ。
+	   地図を動かすつもりの操作が、文字の範囲選択になると邪魔になる */
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.stage.is-panning .chart {
+	cursor: grabbing;
+}
+
+/* -------------------------------------------------------------
+   画面上の大きさを一定に保つ
+
+   点の大きさ・当たり判定・文字を世界座標のまま持つと、
+   引くほど小さくなって読めず、押せなくなる。
+   逆に寄ると当たり判定だけが巨大になる。
+
+   そこで **位置だけを世界座標に置き、大きさは画面px基準**にする。
+   calc(Npx * var(--s)) は「画面上で N px」を意味する。
+   線は vector-effect で同じことをする。
+   ------------------------------------------------------------- */
+.edge {
+	stroke: var(--map-edge);
+	stroke-width: 1.5;
+	fill: none;
+	vector-effect: non-scaling-stroke;
+}
+
+.chart__rule {
+	stroke: var(--map-line);
+	stroke-dasharray: 3 6;
+	vector-effect: non-scaling-stroke;
+}
+
+.chart__axis {
+	stroke: var(--map-axis);
+	stroke-width: 1;
+	vector-effect: non-scaling-stroke;
+}
+
+.chart__band {
+	font-size: calc(11px * var(--s));
+	fill: var(--map-chrome);
+	letter-spacing: 0.1em;
+}
+
+.chart__label {
+	font-size: calc(13px * var(--s));
+	fill: var(--ink);
+	text-anchor: middle;
+	pointer-events: none;
+	/* 点の真上に置く。オフセットも画面px基準にしないと、
+	   引いたときにラベルが点に重なる */
+	transform: translateY(calc(-20px * var(--s)));
+	opacity: 0;
+}
+
+/* 見た目を変えずに当たり判定だけ広げる。
+   指で押せる大きさ（約48px）を画面上で確保する。 */
+.node__hit {
+	r: calc(24px * var(--s));
+	fill: transparent;
+	stroke: none;
+}
+
+.node__halo {
+	r: calc((12px + var(--t, 0) * 3px) * var(--s));
+	fill: none;
+	stroke: var(--c);
+	stroke-width: 1;
+	opacity: 0.45;
+	vector-effect: non-scaling-stroke;
+	transition: opacity 0.3s ease, stroke-width 0.3s ease, stroke 0.55s ease;
+}
+
+.node__dot {
+	r: calc((6px + var(--t, 0) * 3px) * var(--s));
+	fill: var(--c);
+	stroke: var(--dot-edge);
+	stroke-width: 1;
+	vector-effect: non-scaling-stroke;
+}
+
+/* 全体俯瞰では点を大きくする（2026-08-30）。
+   ラベルも案内文も出さない状態なので、**押せることを点の大きさで示す**。
+   会話を開くと点が増えて密になるので、そちらは元の大きさのまま。
+
+   ※ 当たり判定（24px）の内側に収める。見た目が判定より大きいと、
+     縁を押したのに反応しない場所ができる。
+     最大でも 18px + 3px = 21px < 24px。 */
+.stage[data-mode="all"] .node__dot {
+	r: calc((10px + var(--t, 0) * 3px) * var(--s));
+}
+
+.stage[data-mode="all"] .node__halo {
+	r: calc((18px + var(--t, 0) * 3px) * var(--s));
+}
+
+.node {
+	cursor: pointer;
+	transition: opacity 0.4s ease;
+}
+
+/* 畳まれている枝。親の位置へ吸い込まれながら消える */
+.node.is-hidden,
+.edge.is-hidden {
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* 既定のフォーカス枠はラベルごと囲ってしまうので消し、
+   代わりに輪（halo）を強めて示す。キーボード操作でも分かるようにする。 */
+.node:focus {
+	outline: none;
+}
+
+.node:focus-visible .node__halo {
+	opacity: 1;
+	stroke-width: 2.5;
+}
+
+.node:hover .node__halo,
+.node[aria-pressed="true"] .node__halo {
+	opacity: 1;
+	stroke-width: 2;
+}
+
+/* -------------------------------------------------------------
+   ラベルは「いつ出すか」で制御する（意味的ズーム）
+
+   引いているとき＝形・量・深さだけ。言葉は出さない。
+   触れた／フォーカスした点だけが、その1つを出す。
+   会話を開いて寄ったときに、その会話の言葉が出る。
+
+   ※ 全体表示でも全ラベルを出していたのを 2026-08-30 に取りやめた。
+     「点の数＝会話数だから読める量に収まる」と見積もっていたが、
+     **1点あたりの幅（LABEL_MIN_PX = 80px）より
+     ラベル本文のほうが長い**（13px × 十数文字）ので、
+     幅の判定を通っても隣と重なって読めなかった。
+     正典 §6 が最初から「引いているとき＝形・量・深さだけ」と
+     書いており、ずれていたのは実装のほうである。
+     どの会話かは、点に触れれば読める。
+   ------------------------------------------------------------- */
+
+/* 会話を開いているときだけ、**その会話の言葉**を出す。
+   畳んだままの会話の点は「まだ読んでいない場所」の目印であって、
+   いま読む対象ではない。
+   横幅が足りているかの判定は setView が data-detail に書く。 */
+.stage[data-mode="conv"][data-detail="high"] .node.is-open .chart__label {
+	opacity: 0.9;
+}
+
+/* 出しきれない量になっていても、触れた点の言葉だけは出す */
+.node:hover .chart__label,
+.node:focus-visible .chart__label,
+.node[aria-pressed="true"] .chart__label {
+	opacity: 1;
+}
+
+/* 根だけは常に出す。地図の起点が分からないと構造が読めないため */
+.stage .node[data-depth="0"] .chart__label {
+	opacity: 0.75;
+}
+
+/* ズーム中は、選んだ点以外を引かせて注意を集める */
+.stage.is-zoomed .node:not([aria-pressed="true"]):not(.is-hidden) {
+	opacity: 0.28;
+}
+
+.stage.is-zoomed #scale {
+	opacity: 0.25;
+	transition: opacity 0.4s ease;
+}
+
+/* 図の内側の水深。図の縦位置と濃さが必ず一致する */
+.chart__grad--top { stop-color: var(--chart-top); }
+.chart__grad--mid { stop-color: var(--chart-mid); }
+.chart__grad--bot { stop-color: var(--chart-bot); }
+
+/* 押す前の案内。ズームしたら消す */
+.hint {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 22px;
+	text-align: center;
+	font-size: 13px;
+	color: var(--map-chrome);
+	pointer-events: none;
+	transition: opacity 0.3s ease;
+}
+
+.stage.is-zoomed .hint {
+	opacity: 0;
+}
+
+/* =========================================================
+   ノードの内容
+   カードは画面の下端に固定する。
+   点の位置に追従させると、寄り具合によって宙に浮いて
+   下に死んだ余白ができる。位置が毎回同じほうが目も慣れる。
+
+   前後ボタンはカードと同じ行に置き、flex で縦位置を自動的に揃える。
+   ========================================================= */
+.detailbar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 26px;
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 14px;
+	padding: 0 20px;
+	opacity: 0;
+	visibility: hidden;
+	transform: translateY(10px);
+	transition: opacity 0.35s ease, transform 0.35s ease, visibility 0.35s;
+	/* 隙間を通したクリックは地図に届かせる（＝一段戻れる） */
+	pointer-events: none;
+}
+
+.detailbar.is-open {
+	opacity: 1;
+	visibility: visible;
+	transform: translateY(0);
+}
+
+.detail {
+	pointer-events: auto;
+	width: min(620px, 100%);
+	max-height: 62%;
+	overflow-y: auto;
+	background: var(--surface);
+	color: var(--ink);
+	border-radius: 16px;
+	padding: 28px 30px;
+	box-shadow: var(--shadow-card);
+}
+
+/* 前後のノードへ移動する。
+   全体表示を経由せずに辿れることが要点。 */
+.nav {
+	pointer-events: auto;
+	flex: 0 0 auto;
+	width: 46px;
+	height: 46px;
+	border-radius: 50%;
+	background: var(--btn-bg);
+	border: 1px solid var(--btn-border);
+	color: var(--btn-ink);
+	font-size: 26px;
+	line-height: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: background 0.16s ease, opacity 0.2s ease;
+}
+
+.nav:hover:not(:disabled) {
+	background: var(--btn-bg-hover);
+}
+
+.nav:disabled {
+	opacity: 0.22;
+	cursor: default;
+}
+
+.detail__quote {
+	font-size: 21px;
+	font-weight: 700;
+	line-height: 1.7;
+	padding-left: 16px;
+	border-left: 4px solid var(--c);
+	margin-bottom: 16px;
+}
+
+.detail__meta {
+	font-size: 12.5px;
+	color: var(--ink-mute);
+	margin-bottom: 2px;
+}
+
+/* そのとき何を聞かれたか。ここが読めないと発話の文脈が分からないので、
+   カードの中でも十分な大きさを取る。 */
+.detail__q {
+	font-size: 15px;
+	line-height: 1.75;
+	color: var(--ink);
+	background: var(--tint);
+	border-radius: 10px;
+	padding: 14px 16px;
+	margin-top: 18px;
+}
+
+.detail__q strong {
+	display: block;
+	font-size: 11px;
+	letter-spacing: 0.1em;
+	margin-bottom: 6px;
+	color: var(--ink-mute);
+	font-weight: 700;
+}
+
+/* 全体表示に戻る */
+.reset {
+	position: absolute;
+	top: 4px;
+	right: max(24px, calc((100% - var(--maxw)) / 2));
+	z-index: 4;
+	font-size: 13px;
+	padding: 8px 16px;
+	border-radius: 999px;
+	background: var(--btn-bg);
+	border: 1px solid var(--btn-border);
+	color: var(--btn-ink);
+}
+
+.reset:hover {
+	background: var(--btn-bg-hover);
+}
+
+/* ---------- 狭い画面 ---------- */
+@media (max-width: 760px) {
+	.stats {
+		grid-template-columns: 1fr;
+	}
+
+	.now__q {
+		font-size: 19px;
+	}
+
+	/* 画面が縦長なので、カードが地図を覆いすぎないようにする。
+	   地図はドラッグで動かせるので、狭くても中身は追える。 */
+	.detail {
+		max-height: 46%;
+		padding: 20px 18px;
+	}
+
+	.detail__quote {
+		font-size: 18px;
+	}
+
+	.detailbar {
+		gap: 8px;
+		padding: 0 10px;
+	}
+
+	.nav {
+		width: 38px;
+		height: 38px;
+		font-size: 22px;
+	}
+}
