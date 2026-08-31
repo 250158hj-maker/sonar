@@ -1,15 +1,15 @@
 "use strict";
 
 /* =============================================================
-   Sonar モック画面 スクリプト
+   Sonar スクリプト
    -------------------------------------------------------------
-   これはモックであり、サーバー・DB・LLM とは接続していない。
-   会話の内容はすべてこのファイル内の固定データ。
-   本実装では下記が置き換わる：
-	 - QUESTIONS      → Claude API が生成する問い（SSEで届く）
-	 - typeOut()      → SSE の受信ハンドラ
-	 - CONVERSATIONS / NODES → DBから取得したノード
-	 - layout()       → そのまま使える（描画ライブラリを入れても座標計算は同じ）
+   もとは mock/script.js（サーバー・DB・LLM に繋がっていない固定データ版）。
+   2026-08-31 に本実装へ接続した。モックからの差分は3箇所だけ：
+	 - QUESTIONS      → 削除。問いは Claude が作って SSE で届く
+	 - typeOut()      → キュー＋一定速度の描画ループに分解（SSE 対応）
+	 - CONVERSATIONS / NODES → サーバが window.SONAR に先出しする DB のデータ
+	                     （|| 以降にモックの固定データをフォールバックとして残置）
+   layout() の座標計算には触っていない（→スコープと縮退ライン §6）。
    ============================================================= */
 
 /* -------------------------------------------------------------
@@ -60,37 +60,9 @@ const MOODS = {
 		steer: "既定。様子を見ながら判断する"
 	}
 };
-
-const QUESTIONS = [
-	{
-		/* 1問目は選ばれた気分で差し替わる（MOODS[*].opener） */
-		text: "",
-		example: "三年続けたバイトを先月辞めた"
-	},
-	{
-		// 「三年続けたバイト」を反復している
-		text: "三年続けたバイトを辞めたんですね。辞めると決めたのは、いつ頃でしたか。",
-		example: "去年の冬くらいから考えてはいた"
-	},
-	{
-		// 「去年の冬」と「先月まで続けた」を突き合わせて次を聞く
-		text: "去年の冬から考えていて、先月まで続けた。その間、辞めずにいたのは何が理由でしたか。",
-		example: "店長が良い人で、抜けたら回らないのが分かってた"
-	},
-	{
-		text: "店長のことと、店が回らないこと。最終的に辞める側に傾いたのは、どちらが変わったからですか。",
-		example: "どっちも変わってない。自分が限界だっただけ"
-	},
-	{
-		// 本人の言葉をそのまま引用して深いところへ渡す
-		text: "「自分が限界だった」。その限界を、誰かに言えていましたか。",
-		example: "言えてない。言ったら負けだと思ってた"
-	},
-	{
-		text: "「言ったら負け」。その負けは、誰に対しての負けでしたか。",
-		example: ""
-	}
-];
+/* QUESTIONS（モックの固定シナリオ）はここにあったが、本実装では
+   問いは Claude が作って SSE で届くので削除した。Vault の mock/ には
+   凍結された原本が残っている（提出物②）。 */
 
 /* -------------------------------------------------------------
    深さ → 色の強さ（0〜1）
@@ -246,74 +218,226 @@ function initTalk() {
 	const answerEl = document.getElementById("answer");
 	const sendEl = document.getElementById("send");
 	const stopEl = document.getElementById("stop");
-	const fillEl = document.getElementById("fillExample");
 	const composeEl = document.getElementById("compose");
 	const logEl = document.getElementById("log");
 	const wrapEl = document.getElementById("wrap");
 	const wrapListEl = document.getElementById("wrapList");
 	const moodEl = document.getElementById("mood");
+	const failedEl = document.getElementById("failed");
 
-	let index = 0;
 	let typing = false;
-	let timer = 0;
 	let mood = MOODS.none;
+	let moodKey = "none";
+
+	/* サーバとのやりとりに要る状態。
+	   問いはサーバに預けず、次の回答と一緒に送り返す
+	   （サーバは会話の途中状態を持たない。→設計書 システム構成 §3(a)）。 */
+	let conversationId = null;
+	let lastNodeId = null;
+	let currentQuestion = "";
 
 	/* 実際に答えられた分だけを保持する。
 	   地図に置かれるのは本人が言った言葉だけなので、
 	   途中でやめたら、その先のノードは生まれない。 */
 	const placed = [];
 
-	/* 本実装では SSE の受信ハンドラに置き換わる。
-	   ここでは1文字ずつ描画して逐次表示を再現している。 */
-	function typeOut(text, done) {
+	/* =========================================================
+	   逐次表示
+	   ---------------------------------------------------------
+	   モックの typeOut(text, done) は**全文を受け取って**
+	   questionEl.textContent = "" で始めていた。SSE では文字が
+	   継ぎ足されるので、そのままデルタごとに呼ぶと**表示が毎回リセットされる**。
+
+	   届いた文字はキューに積むだけにして、描画ループは到着と無関係に
+	   一定速度で回す。Anthropic は短い出力を2〜3デルタにしか刻まないので、
+	   受け取ったまま描くと「1文字 → 残り全部」でちらつく。
+
+	   不変条件：**表示を消すのは beginTyping だけ。**
+
+	   setInterval ではなく requestAnimationFrame なのは、滑らかなことに加えて
+	   背面タブで止まるため。タブを戻した人は溜まった文字を1フレームで受け取り、
+	   遅い再生を眺めずに済む。
+	   ========================================================= */
+	const CPS = 24; /* 字/秒。モックの 42ms/字 と同じ体感 */
+	let queue = "";
+	let closed = false;
+	let raf = 0;
+	let lastAt = 0;
+	let caret = null;
+	let onDone = null;
+	let es = null; /* いま開いている EventSource */
+
+	function beginTyping(done) {
 		stopTyping();
 		typing = true;
+		queue = "";
+		closed = false;
+		onDone = done;
 		questionEl.textContent = "";
-		const caret = document.createElement("span");
+		caret = document.createElement("span");
 		caret.className = "caret";
 		questionEl.appendChild(caret);
-
-		let i = 0;
-		timer = window.setInterval(function () {
-			if (i >= text.length) {
-				stopTyping();
-				caret.remove();
-				if (done) done();
-				return;
-			}
-			caret.insertAdjacentText("beforebegin", text.charAt(i));
-			i += 1;
-		}, 42);
+		lastAt = performance.now();
+		raf = window.requestAnimationFrame(tick);
 	}
 
-	/* 途中で会話を終えたら、書き出しを止める。
-	   本実装ではここが「SSEの中断（AbortController.abort()）」になる。
-	   止めないと、誰も読まない出力にトークンを払い続けることになる。 */
+	/* デルタが届いた。表示には触らない */
+	function pushText(t) {
+		queue += t;
+	}
+
+	/* もう文字は来ない */
+	function endOfStream() {
+		closed = true;
+	}
+
+	function tick(now) {
+		const due = Math.floor(((now - lastAt) * CPS) / 1000);
+		if (due > 0) {
+			const take = queue.slice(0, due);
+			if (take) {
+				caret.insertAdjacentText("beforebegin", take);
+				queue = queue.slice(take.length);
+			}
+			lastAt = now;
+		}
+		if (closed && queue === "") {
+			finishTyping();
+			return;
+		}
+		raf = window.requestAnimationFrame(tick);
+	}
+
+	function finishTyping() {
+		teardown();
+		if (onDone) {
+			const d = onDone;
+			onDone = null;
+			d();
+		}
+	}
+
+	/* 中断。EventSource.close() と対にする。
+	   閉じるとサーバ側で reqwest のストリームも落ちるので、
+	   誰も読まない出力にトークンを払い続けずに済む
+	   （→設計書 システム構成 §3(d)）。 */
 	function stopTyping() {
-		if (timer) window.clearInterval(timer);
-		timer = 0;
+		teardown();
+		onDone = null;
+		if (es) {
+			es.close();
+			es = null;
+		}
+	}
+
+	function teardown() {
+		if (raf) window.cancelAnimationFrame(raf);
+		raf = 0;
 		typing = false;
+		if (caret) {
+			caret.remove();
+			caret = null;
+		}
 	}
 
 	function updateSendState() {
 		sendEl.disabled = typing || answerEl.value.trim() === "";
 	}
 
-	function showQuestion() {
-		const q = QUESTIONS[index];
+	/* 背景の深さ＝根からの距離（＝これまでに答えた回数）。
+	   地図のノードと同じ depthT() を通すので、段も上限も無い。
+	   数値もラベルも画面には出さない。 */
+	function applyDepth() {
+		talk.style.setProperty("--t", depthT(placed.length).toFixed(3));
+	}
 
-		/* 背景の深さ＝根からの距離（＝これまでに答えた回数）。
-		   地図のノードと同じ depthT() を通すので、段も上限も無い。
-		   旧実装は2ターンごとの3段で3で頭打ちだった——正典 §2 の
-		   「回数を固定した層で切ると必ず嘘になる」に反していたため、
-		   連続量へ統一した（2026-08-30）。数値もラベルも画面には出さない。 */
-		talk.style.setProperty("--t", depthT(index).toFixed(3));
+	/* =========================================================
+	   問いを出す
+	   ========================================================= */
 
+	/* 1問目は LLM を呼ばない（気分ごとの固定文。→設計書 プロンプト §2-1）。
+	   固定文も同じキューを通すので、SSE の問いと速度が揃う。 */
+	function showFixed(text) {
+		currentQuestion = text;
+		applyDepth();
 		sendEl.disabled = true;
-		typeOut(q.text, function () {
+		beginTyping(function () {
 			updateSendState();
 			answerEl.focus();
 		});
+		pushText(text);
+		endOfStream();
+	}
+
+	/* 2問目以降。保存されたノードから根までを履歴にして問いを作らせる */
+	function streamQuestion(nodeId) {
+		currentQuestion = "";
+		let got = 0;
+		applyDepth();
+		sendEl.disabled = true;
+		beginTyping(function () {
+			updateSendState();
+			answerEl.focus();
+		});
+
+		es = new EventSource("/talk/question?node=" + nodeId);
+
+		es.addEventListener("delta", function (e) {
+			const t = JSON.parse(e.data);
+			got += 1;
+			currentQuestion += t;
+			pushText(t);
+		});
+
+		/* 終端。これが無いと、正常終了した SSE でも EventSource が
+		   onerror を撃って再接続を試み、「完了」と「失敗」を区別できない */
+		es.addEventListener("done", function () {
+			es.close();
+			es = null;
+			endOfStream();
+		});
+
+		es.addEventListener("failed", function () {
+			es.close();
+			es = null;
+			showFailed(function () {
+				streamQuestion(nodeId);
+			});
+		});
+
+		es.onerror = function () {
+			if (!es) return;
+			es.close();
+			es = null;
+			if (got > 0) {
+				/* 途中まで届いている。切れた所までを問いとして残す */
+				endOfStream();
+			} else {
+				showFailed(function () {
+					streamQuestion(nodeId);
+				});
+			}
+		};
+	}
+
+	/* 問いが出せなかった（→設計書 画面遷移図 §5-1）。
+	   「エラー」「失敗しました」とは書かない。ユーザーの発話は成功していて、
+	   失敗したのはこちらの問いだけ。**すでに答えた分の点は失われない。** */
+	let retryFn = null;
+
+	function showFailed(fn) {
+		stopTyping();
+		retryFn = fn;
+		nowEl.classList.add("hidden");
+		composeEl.classList.add("hidden");
+		failedEl.classList.remove("hidden");
+		logEl.scrollTop = logEl.scrollHeight;
+	}
+
+	function hideFailed() {
+		failedEl.classList.add("hidden");
+		nowEl.classList.remove("hidden");
+		composeEl.classList.remove("hidden");
 	}
 
 	/* 済んだやりとりを上へ送る。小さく薄くなり「沈んでいく」 */
@@ -340,38 +464,64 @@ function initTalk() {
 		return text.length > 16 ? text.slice(0, 16) + "…" : text;
 	}
 
-	function submit() {
+	/* =========================================================
+	   回答を送る
+	   ---------------------------------------------------------
+	   保存が成功してから画面を進める。先に進めてしまうと、
+	   保存されていないのに「点が置かれた」ように見える。
+	   ========================================================= */
+	async function submit() {
 		const value = answerEl.value.trim();
 		if (value === "" || typing) return;
 
-		/* 深さ＝根からの距離。このモックは1本のスレッドなので、
-		   何番目の回答かがそのまま深さになる。 */
-		placed.push({
-			depth: index + 1,
-			text: toLabel(value)
-		});
+		const asked = currentQuestion;
+		sendEl.disabled = true;
 
-		pushToPast(QUESTIONS[index].text, value);
-		answerEl.value = "";
-		answerEl.style.height = "auto";
-		index += 1;
-
-		if (index >= QUESTIONS.length) {
-			finish();
+		let saved;
+		try {
+			const r = await fetch("/talk/answer", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					conversation_id: conversationId,
+					parent_id: lastNodeId,
+					mood: moodKey,
+					question: asked,
+					answer: value
+				})
+			});
+			if (!r.ok) throw new Error("HTTP " + r.status);
+			saved = await r.json();
+		} catch (e) {
+			/* まだ保存されていない。入力はそのまま残して送り直せるようにする */
+			showFailed(function () {
+				updateSendState();
+			});
 			return;
 		}
 
-		showQuestion();
+		conversationId = saved.conversation_id;
+		lastNodeId = saved.node_id;
+
+		/* ここから先で失敗しても、点は既に置かれている（→§5-1） */
+		pushToPast(asked, value);
+		placed.push({ depth: placed.length + 1, text: toLabel(value) });
+		answerEl.value = "";
+		answerEl.style.height = "auto";
 		logEl.scrollTop = logEl.scrollHeight;
+
+		streamQuestion(saved.node_id);
 	}
 
 	/* 会話を終える。
-	   途中でやめても「未完了」扱いにはしない。深さは本人が決めるため。 */
+	   途中でやめても「未完了」扱いにはしない。深さは本人が決めるため。
+	   「ここまでにする」では DB に何も書かない（→画面遷移図 §6）。 */
 	function finish() {
 		stopTyping();
 		moodEl.classList.add("hidden");
 		nowEl.classList.add("hidden");
 		composeEl.classList.add("hidden");
+		failedEl.classList.add("hidden");
 
 		wrapListEl.innerHTML = "";
 		placed.forEach(function (item) {
@@ -415,24 +565,28 @@ function initTalk() {
 	sendEl.addEventListener("click", submit);
 	stopEl.addEventListener("click", finish);
 
-	/* デモ用。実装には残さない */
-	fillEl.addEventListener("click", function () {
-		answerEl.value = QUESTIONS[index].example || "…";
-		answerEl.dispatchEvent(new Event("input"));
-		answerEl.focus();
+	document.getElementById("retry").addEventListener("click", function () {
+		hideFailed();
+		const fn = retryFn;
+		retryFn = null;
+		if (fn) fn();
 	});
 
+	document.getElementById("stopFromFailed").addEventListener("click", finish);
+
 	/* 気分が選ばれたら、それに応じた1問目から会話を始める。
-	   選ばれた気分は本実装ではセッションに保存し、プロンプトへ渡す。 */
+	   気分はここではまだ DB に書かない。会話の行を作るのは
+	   **最初の回答が送られたとき**（→画面遷移図 §6）——選んだだけで
+	   離脱した人の分の空の会話が溜まると「話した回数」が実態とずれる。 */
 	function startWith(key) {
-		mood = MOODS[key] || MOODS.none;
-		QUESTIONS[0].text = mood.opener;
+		moodKey = MOODS[key] ? key : "none";
+		mood = MOODS[moodKey];
 
 		moodEl.classList.add("hidden");
 		nowEl.classList.remove("hidden");
 		composeEl.classList.remove("hidden");
 
-		showQuestion();
+		showFixed(mood.opener);
 	}
 
 	moodEl.querySelectorAll(".mood__chip").forEach(function (chip) {

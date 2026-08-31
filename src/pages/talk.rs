@@ -87,7 +87,6 @@ pub async fn talk() -> Result {
                         </div>
                         <div class="compose__foot">
                             <button class="stop" id="stop">"ここまでにする"</button>
-                            <button class="stop" id="fillExample">"例を入れる"</button>
                         </div>
                     </div>
                 </div>
