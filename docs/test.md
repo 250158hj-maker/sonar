@@ -176,45 +176,45 @@ const scope = new Function(src + "\n;return { tidyX: tidyX, NODES: NODES, ROOT: 
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Mood::parse | 正常系 | なし | `Mood::parse("fog")` を呼ぶ | `Some(Mood::Fog)` が返る | 未実施 | | |
-| 2 | Mood::parse | 正常系 | なし | chat / listen / fog / sort / none を順に渡す | 5件とも `Some` が返る（`None` が1件も無い） | 未実施 | | |
-| 3 | Mood::parse | 異常系 | なし | `Mood::parse("Fog")` を呼ぶ | `None` が返る（大文字小文字を吸収しない） | 未実施 | | |
-| 4 | Mood::parse | 異常系 | なし | `Mood::parse("もやもやしている")`（`label()` の文字列）を渡す | `None` が返る | 未実施 | | 表示名を値として送っても通らないことの確認 |
-| 5 | Mood::as_str | 正常系 | なし | 5値それぞれで `Mood::parse(m.as_str())` を呼ぶ | 5件とも `Some(m)` が返る（往復で元に戻る） | 未実施 | | |
-| 6 | Mood::label | 正常系 | なし | `include_str!("script.js")` に `Mood::Fog.label()` の文字列が含まれるか調べる | `"もやもやしている"` が含まれる | 未実施 | | 地図の会話見出しと気分ボタンの文言が一致していること |
+| 1 | Mood::parse | 正常系 | なし | `Mood::parse("fog")` を呼ぶ | `Some(Mood::Fog)` が返る | 合格 | 2026-08-31 | `t01_parse_fog_returns_some_fog` |
+| 2 | Mood::parse | 正常系 | なし | chat / listen / fog / sort / none を順に渡す | 5件とも `Some` が返る（`None` が1件も無い） | 合格 | 2026-08-31 | `t02_parse_accepts_all_five_values` |
+| 3 | Mood::parse | 異常系 | なし | `Mood::parse("Fog")` を呼ぶ | `None` が返る（大文字小文字を吸収しない） | 合格 | 2026-08-31 | `t03_parse_does_not_absorb_case` |
+| 4 | Mood::parse | 異常系 | なし | `Mood::parse("もやもやしている")`（`label()` の文字列）を渡す | `None` が返る | 合格 | 2026-08-31 | 表示名を値として送っても通らないことの確認 ／ `t04_parse_rejects_display_label` |
+| 5 | Mood::as_str | 正常系 | なし | 5値それぞれで `Mood::parse(m.as_str())` を呼ぶ | 5件とも `Some(m)` が返る（往復で元に戻る） | 合格 | 2026-08-31 | `t05_as_str_round_trips_through_parse` |
+| 6 | Mood::label | 正常系 | なし | `include_str!("script.js")` に `Mood::Fog.label()` の文字列が含まれるか調べる | `"もやもやしている"` が含まれる | 合格 | 2026-08-31 | 地図の会話見出しと気分ボタンの文言が一致していること ／ `t06_fog_label_is_present_in_script_js` |
 
 ### 4-2. `steer`（`src/questioner.rs`）— L1
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 7 | steer | 正常系 | なし | `steer(Mood::Fog, &"あ".repeat(30))` を呼ぶ | `"一歩ずつ深める。"` が返る | 未実施 | | |
-| 8 | steer | 境界値 | なし | `steer(Mood::Fog, &"あ".repeat(19))` を呼ぶ | `"深めない。同じ深さで、いま出ている言葉について聞き直す。"` が返る | 未実施 | | 19文字＝`SHORT_ANSWER_CHARS`(20) 未満 |
-| 9 | steer | 境界値 | なし | `steer(Mood::Fog, &"あ".repeat(20))` を呼ぶ | `"一歩ずつ深める。"` が返る | 未実施 | | 境界ちょうど。判定は `<` であって `<=` ではない |
-| 10 | steer | 正常系 | なし | `Mood::Chat` で 0 / 19 / 20 / 40 文字の4通りを呼ぶ | 4件とも同一の文字列が返る（長さで分岐しない） | 未実施 | | `Listen` `Sort` も同じ性質 |
-| 11 | steer | 境界値 | なし | `steer(Mood::None, "")` を呼ぶ | `"深めない。同じ深さで別のことを聞く。"` が返る | 未実施 | | 0文字は短い側 |
-| 12 | steer | 境界値 | なし | 絵文字（サロゲートペア）を含む19文字の回答を `Mood::Fog` で渡す | 短い側の指示が返る | 未実施 | | `chars().count()` で数える。バイト長でも UTF-16 長でもない |
-| 13 | steer | 正常系 | なし | `steer` の戻り値7種が `include_str!("../check/run.py")` に含まれるか調べる | 7種すべてが含まれる | 未実施 | | 検査ハーネスと実装の指示文がずれていないこと（→§1-1 の失敗クラス3） |
+| 7 | steer | 正常系 | なし | `steer(Mood::Fog, &"あ".repeat(30))` を呼ぶ | `"一歩ずつ深める。"` が返る | 合格 | 2026-08-31 | `t07_steer_fog_with_long_answer` |
+| 8 | steer | 境界値 | なし | `steer(Mood::Fog, &"あ".repeat(19))` を呼ぶ | `"深めない。同じ深さで、いま出ている言葉について聞き直す。"` が返る | 合格 | 2026-08-31 | 19文字＝`SHORT_ANSWER_CHARS`(20) 未満 ／ `t08_steer_fog_with_19_chars_is_short` |
+| 9 | steer | 境界値 | なし | `steer(Mood::Fog, &"あ".repeat(20))` を呼ぶ | `"一歩ずつ深める。"` が返る | 合格 | 2026-08-31 | 境界ちょうど。判定は `<` であって `<=` ではない ／ `t09_steer_fog_with_20_chars_is_not_short` |
+| 10 | steer | 正常系 | なし | `Mood::Chat` で 0 / 19 / 20 / 40 文字の4通りを呼ぶ | 4件とも同一の文字列が返る（長さで分岐しない） | 合格 | 2026-08-31 | `Listen` `Sort` も同じ性質 ／ `t10_steer_chat_does_not_branch_on_length` |
+| 11 | steer | 境界値 | なし | `steer(Mood::None, "")` を呼ぶ | `"深めない。同じ深さで別のことを聞く。"` が返る | 合格 | 2026-08-31 | 0文字は短い側 ／ `t11_steer_none_with_empty_answer_is_short` |
+| 12 | steer | 境界値 | なし | 絵文字（サロゲートペア）を含む19文字の回答を `Mood::Fog` で渡す | 短い側の指示が返る | 合格 | 2026-08-31 | `chars().count()` で数える。バイト長でも UTF-16 長でもない ／ `t12_steer_counts_chars_not_bytes_or_utf16` |
+| 13 | steer | 正常系 | なし | `steer` の戻り値7種が `include_str!("../check/run.py")` に含まれるか調べる | 7種すべてが含まれる | 合格 | 2026-08-31 | 検査ハーネスと実装の指示文がずれていないこと（→§1-1 の失敗クラス3） ／ `t13_all_steer_strings_appear_in_run_py` |
 
 ### 4-3. `drain_frames`（`src/questioner.rs`。SSE フレームの取り出し）— L1
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 14 | drain_frames | 正常系 | なし | `data: {"type":"content_block_delta","delta":{"text":"問い"}}` ＋ `\n\n` を渡す | pending に `"問い"` が1件積まれ、buf が空文字になる | 未実施 | | |
-| 15 | drain_frames | 正常系 | なし | 項番14のフレームを2つ連結して渡す | pending に2件が受信順で積まれる | 未実施 | | |
-| 16 | drain_frames | 境界値 | なし | `\n\n` を含まない途中までのチャンクを渡す | pending は0件、buf は入力のまま残る | 未実施 | | 次のチャンクで続きを読めること |
-| 17 | drain_frames | 境界値 | なし | 完成した1フレーム ＋ 次フレームの先頭だけを連結して渡す | pending は1件、buf に未完成分だけが残る | 未実施 | | |
-| 18 | drain_frames | 異常系 | なし | `data: {壊れたJSON}` ＋ `\n\n` を渡す | パニックせず pending は0件（その行を捨てる） | 未実施 | | |
-| 19 | drain_frames | 正常系 | なし | `message_delta`（`stop_reason` を含む）フレームを渡す | pending は0件 | 未実施 | | usage / stop_reason は境界から返さない（→[詳細設計書](detail.md) §2） |
+| 14 | drain_frames | 正常系 | なし | `data: {"type":"content_block_delta","delta":{"text":"問い"}}` ＋ `\n\n` を渡す | pending に `"問い"` が1件積まれ、buf が空文字になる | 合格 | 2026-08-31 | `t14_drain_frames_takes_one_complete_frame` |
+| 15 | drain_frames | 正常系 | なし | 項番14のフレームを2つ連結して渡す | pending に2件が受信順で積まれる | 合格 | 2026-08-31 | `t15_drain_frames_keeps_receive_order` |
+| 16 | drain_frames | 境界値 | なし | `\n\n` を含まない途中までのチャンクを渡す | pending は0件、buf は入力のまま残る | 合格 | 2026-08-31 | 次のチャンクで続きを読めること ／ `t16_drain_frames_holds_incomplete_chunk` |
+| 17 | drain_frames | 境界値 | なし | 完成した1フレーム ＋ 次フレームの先頭だけを連結して渡す | pending は1件、buf に未完成分だけが残る | 合格 | 2026-08-31 | `t17_drain_frames_leaves_only_the_incomplete_tail` |
+| 18 | drain_frames | 異常系 | なし | `data: {壊れたJSON}` ＋ `\n\n` を渡す | パニックせず pending は0件（その行を捨てる） | 合格 | 2026-08-31 | `t18_drain_frames_discards_broken_json` |
+| 19 | drain_frames | 正常系 | なし | `message_delta`（`stop_reason` を含む）フレームを渡す | pending は0件 | 合格 | 2026-08-31 | usage / stop_reason は境界から返さない（→[詳細設計書](detail.md) §2） ／ `t19_drain_frames_does_not_emit_message_delta` |
 
 ### 4-4. `jp_date` / `key`（`src/mapdata.rs`）— L1
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 20 | jp_date | 正常系 | なし | `jp_date("2026-08-31T11:21:00+09:00")` を呼ぶ | `"2026年8月31日"` が返る | 未実施 | | |
-| 21 | jp_date | 正常系 | なし | `jp_date("2026-01-05T00:00:00+09:00")` を呼ぶ | `"2026年1月5日"` が返る（0埋めが落ちる） | 未実施 | | |
-| 22 | jp_date | 境界値 | なし | `jp_date("2026-10-10T00:00:00+09:00")` を呼ぶ | `"2026年10月10日"` が返る | 未実施 | | `trim_start_matches('0')` が `"10"` を壊さないこと |
-| 23 | jp_date | 異常系 | なし | `jp_date("2026-08")`（10文字未満）を呼ぶ | 入力がそのまま `"2026-08"` として返る（パニックしない） | 未実施 | | |
-| 24 | key | 正常系 | なし | `key(1)` と `key(42)` を呼ぶ | `"n1"` `"n42"` が返る | 未実施 | | `script.js` のノードキー形式 |
+| 20 | jp_date | 正常系 | なし | `jp_date("2026-08-31T11:21:00+09:00")` を呼ぶ | `"2026年8月31日"` が返る | 合格 | 2026-08-31 | `t20_jp_date_formats_iso8601` |
+| 21 | jp_date | 正常系 | なし | `jp_date("2026-01-05T00:00:00+09:00")` を呼ぶ | `"2026年1月5日"` が返る（0埋めが落ちる） | 合格 | 2026-08-31 | `t21_jp_date_drops_zero_padding` |
+| 22 | jp_date | 境界値 | なし | `jp_date("2026-10-10T00:00:00+09:00")` を呼ぶ | `"2026年10月10日"` が返る | 合格 | 2026-08-31 | `trim_start_matches('0')` が `"10"` を壊さないこと ／ `t22_jp_date_keeps_ten_intact` |
+| 23 | jp_date | 異常系 | なし | `jp_date("2026-08")`（10文字未満）を呼ぶ | 入力がそのまま `"2026-08"` として返る（パニックしない） | 合格 | 2026-08-31 | `t23_jp_date_passes_short_input_through` |
+| 24 | key | 正常系 | なし | `key(1)` と `key(42)` を呼ぶ | `"n1"` `"n42"` が返る | 合格 | 2026-08-31 | `script.js` のノードキー形式 ／ `t24_key_formats_node_id` |
 
 ### 4-5. `POST /talk/answer`（`src/pages/talk.rs`）— L3
 
@@ -222,47 +222,47 @@ const scope = new Function(src + "\n;return { tidyX: tidyX, NODES: NODES, ROOT: 
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 25 | POST /talk/answer | 正常系 | 空のDBで起動済み | `{mood:"fog", question:"問い", answer:"回答"}` を POST | 200 で `{conversation_id, node_id}` が返り、`nodes` に `parent_id IS NULL` の行が1件できる | 未実施 | | |
-| 26 | POST /talk/answer | 正常系 | 項番25を実施済み | `{conversation_id, parent_id:<25のnode_id>, question, answer}` を POST | 200 で新しい `node_id` が返り、その行の `parent_id` が25の `node_id` になる | 未実施 | | |
-| 27 | POST /talk/answer | 異常系 | 起動済み | `answer:""` で POST | 400 が返る | 未実施 | | |
-| 28 | POST /talk/answer | 異常系 | 起動済み | `answer:"   "`（空白のみ）で POST | 400 が返る | 未実施 | | trim 後に空と判定されること |
-| 29 | POST /talk/answer | 異常系 | 起動済み | `question:""` で POST | 400 が返る | 未実施 | | 問いは次の回答と一緒に送り返す設計（→[設計書 システム構成](design/system.md) §3） |
-| 30 | POST /talk/answer | 異常系 | 起動済み | `mood:"happy"` で POST | 400 が返る | 未実施 | | `CHECK` が張れない代わりの enum 担保（→[詳細設計書](detail.md) §5） |
-| 31 | POST /talk/answer | 異常系 | 項番25を実施済み | `conversation_id` あり・`parent_id` なしで POST | 400 が返る | 未実施 | | |
-| 32 | POST /talk/answer | 異常系 | Cookie A で会話を作成済み | Cookie B で A の `conversation_id` に POST | 403 が返る | 未実施 | | 他人の会話に追記できないこと |
-| 33 | POST /talk/answer | 異常系 | 会話を2本作成済み | 会話1の `conversation_id` に会話2のノードを `parent_id` として POST | 400 が返る | 未実施 | | 別会話のノードを合流させない（→[ADR-0003 地図のデータ構造とレイアウト](adr/0003-map-data.md)） |
-| 34 | POST /talk/answer | 異常系 | 起動済み | `conversation_id` なし・`parent_id` ありで POST | 200 が返り、**新しい会話の1手目**として保存される（`parent_id` は無視される） | 未実施 | | 仕様どおり。`parent_id` は `conversation_id` が `Some` のときだけ意味を持つ |
-| 35 | POST /talk/answer | 境界値 | 空のDB | 1手目のあと2手目以降を19回 POST（計20手つなぐ） | その `conversation_id` の `parent_id IS NULL` の行が**ちょうど1件** | 未実施 | | 部分ユニーク索引が張れないためアプリ側で担保している不変条件（→[設計書 データベース](design/database.md) §10-3） |
+| 25 | POST /talk/answer | 正常系 | 空のDBで起動済み | `{mood:"fog", question:"問い", answer:"回答"}` を POST | 200 で `{conversation_id, node_id}` が返り、`nodes` に `parent_id IS NULL` の行が1件できる | 合格 | 2026-08-31 | |
+| 26 | POST /talk/answer | 正常系 | 項番25を実施済み | `{conversation_id, parent_id:<25のnode_id>, question, answer}` を POST | 200 で新しい `node_id` が返り、その行の `parent_id` が25の `node_id` になる | 合格 | 2026-08-31 | |
+| 27 | POST /talk/answer | 異常系 | 起動済み | `answer:""` で POST | 400 が返る | 合格 | 2026-08-31 | |
+| 28 | POST /talk/answer | 異常系 | 起動済み | `answer:"   "`（空白のみ）で POST | 400 が返る | 合格 | 2026-08-31 | trim 後に空と判定されること |
+| 29 | POST /talk/answer | 異常系 | 起動済み | `question:""` で POST | 400 が返る | 合格 | 2026-08-31 | 問いは次の回答と一緒に送り返す設計（→[設計書 システム構成](design/system.md) §3） |
+| 30 | POST /talk/answer | 異常系 | 起動済み | `mood:"happy"` で POST | 400 が返る | 合格 | 2026-08-31 | `CHECK` が張れない代わりの enum 担保（→[詳細設計書](detail.md) §5） |
+| 31 | POST /talk/answer | 異常系 | 項番25を実施済み | `conversation_id` あり・`parent_id` なしで POST | 400 が返る | 合格 | 2026-08-31 | |
+| 32 | POST /talk/answer | 異常系 | Cookie A で会話を作成済み | Cookie B で A の `conversation_id` に POST | 403 が返る | 合格 | 2026-08-31 | 他人の会話に追記できないこと |
+| 33 | POST /talk/answer | 異常系 | 会話を2本作成済み | 会話1の `conversation_id` に会話2のノードを `parent_id` として POST | 400 が返る | 合格 | 2026-08-31 | 別会話のノードを合流させない（→[ADR-0003 地図のデータ構造とレイアウト](adr/0003-map-data.md)） |
+| 34 | POST /talk/answer | 異常系 | 起動済み | `conversation_id` なし・`parent_id` ありで POST | 200 が返り、**新しい会話の1手目**として保存される（`parent_id` は無視される） | 合格 | 2026-08-31 | 仕様どおり。`parent_id` は `conversation_id` が `Some` のときだけ意味を持つ |
+| 35 | POST /talk/answer | 境界値 | 空のDB | 1手目のあと2手目以降を19回 POST（計20手つなぐ） | その `conversation_id` の `parent_id IS NULL` の行が**ちょうど1件** | 合格 | 2026-08-31 | 部分ユニーク索引が張れないためアプリ側で担保している不変条件（→[設計書 データベース](design/database.md) §10-3） |
 
 ### 4-6. `GET /talk/question`（SSE）— L3
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 36 | GET /talk/question | 正常系 | 項番25を実施済み・`ANTHROPIC_API_KEY` が届いている | `?node=<node_id>` を開き、イベントを最後まで読む | `event: delta` が1件以上届き、最後に `event: done` が来る | 未実施 | | **課金あり。** `done` が無いと「完了」と「失敗」を区別できない |
-| 37 | GET /talk/question | 異常系 | 起動済み | `node` を付けずに GET | 400 が返る | 未実施 | | |
-| 38 | GET /talk/question | 異常系 | 起動済み | `?node=abc`（数値でない）で GET | 400 が返る | 未実施 | | |
-| 39 | GET /talk/question | 異常系 | Cookie A で会話を作成済み | Cookie B で A の `node` を GET | 403 が返る | 未実施 | | **他人の履歴がプロンプトに入るのを止める**（→[詳細設計書](detail.md) §5） |
-| 40 | GET /talk/question | 異常系 | 起動済み | `?node=999999`（存在しない）で GET | 4xx が返る（500 にならない） | 未実施 | | Toasty の `get_by_id` が存在しない id に何を返すか**未確認**。500 なら不合格として実際の値を備考に書く |
+| 36 | GET /talk/question | 正常系 | 項番25を実施済み・`ANTHROPIC_API_KEY` が届いている | `?node=<node_id>` を開き、イベントを最後まで読む | `event: delta` が1件以上届き、最後に `event: done` が来る | 未実施 | | **課金あり。** `done` が無いと「完了」と「失敗」を区別できない ／ 2026-08-31 の L3 実装では**未実装**。課金を避けるため検査サーバを `ANTHROPIC_API_KEY` 無しで起動しており、この項番だけはその方法で確かめられない |
+| 37 | GET /talk/question | 異常系 | 起動済み | `node` を付けずに GET | 400 が返る | 合格 | 2026-08-31 | |
+| 38 | GET /talk/question | 異常系 | 起動済み | `?node=abc`（数値でない）で GET | 400 が返る | 合格 | 2026-08-31 | |
+| 39 | GET /talk/question | 異常系 | Cookie A で会話を作成済み | Cookie B で A の `node` を GET | 403 が返る | 合格 | 2026-08-31 | **他人の履歴がプロンプトに入るのを止める**（→[詳細設計書](detail.md) §5） |
+| 40 | GET /talk/question | 異常系 | 起動済み | `?node=999999`（存在しない）で GET | 4xx が返る（500 にならない） | 不合格 | 2026-08-31 | Toasty の `get_by_id` が存在しない id に何を返すか**未確認**。500 なら不合格として実際の値を備考に書く ／ **実測 500**（本文 `internal server error`）。Toasty の `get_by_id` は行が無いとエラーを返し、topcoat が 500 に丸めている |
 
 ### 4-7. 木構造と履歴（`store::path_to` / `nodes`）— L3
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 41 | POST /talk/answer | 正常系 | 3手の直列を作成済み | 2手目の `node_id` を `parent_id` にして POST（枝を作る） | 200。`parent_id` が2手目である行が2件になる | 未実施 | | 枝分かれが作れること |
-| 42 | nodes | 境界値 | 項番41を実施済み | 同じ会話の全ノードを `id` 順で並べる | 親の `id` が必ず子の `id` より小さい | 未実施 | | 並び順を `created_at` ではなく `id` で取る根拠（`AUTOINCREMENT`） |
-| 43 | nodes | 境界値 | `created_at` が同一秒の親子を sqlite3 で直接投入 | 同秒の親子を `created_at` で並べ替える | 順序が決まらない（＝`id` で並べる必要があることの確認） | 未実施 | | ISO8601 を秒で切っているため同着しうる（→[詳細設計書](detail.md) §5） |
-| 44 | store::path_to | 異常系 | `parent_id` が循環するデータを sqlite3 で直接投入 | その `node` で `GET /talk/question` を叩く | 無限ループせずレスポンスが返る | 未実施 | | `chain.len() > all.len()` の保険が効くこと |
+| 41 | POST /talk/answer | 正常系 | 3手の直列を作成済み | 2手目の `node_id` を `parent_id` にして POST（枝を作る） | 200。`parent_id` が2手目である行が2件になる | 合格 | 2026-08-31 | 枝分かれが作れること |
+| 42 | nodes | 境界値 | 項番41を実施済み | 同じ会話の全ノードを `id` 順で並べる | 親の `id` が必ず子の `id` より小さい | 合格 | 2026-08-31 | 並び順を `created_at` ではなく `id` で取る根拠（`AUTOINCREMENT`） |
+| 43 | nodes | 境界値 | `created_at` が同一秒の親子を sqlite3 で直接投入 | 同秒の親子を `created_at` で並べ替える | 順序が決まらない（＝`id` で並べる必要があることの確認） | 合格 | 2026-08-31 | ISO8601 を秒で切っているため同着しうる（→[詳細設計書](detail.md) §5） |
+| 44 | store::path_to | 異常系 | `parent_id` が循環するデータを sqlite3 で直接投入 | その `node` で `GET /talk/question` を叩く | 無限ループせずレスポンスが返る | 合格 | 2026-08-31 | `chain.len() > all.len()` の保険が効くこと |
 
 ### 4-8. 描画データ（`GET /map` / `GET /`）— L3
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 45 | GET /map | 正常系 | 会話1本・3ノードを作成済み | `/map` の HTML から `window.SONAR` の JSON を取り出す | `nodes` が root を含めて4件、`conversations` が1件 | 未実施 | | |
-| 46 | GET /map | 異常系 | 起動済み | `answer` に `</script>` を含めて POST し、`/map` を取得 | HTML 中に生の `</script>` が現れず `<` に置換されている | 未実施 | | `serde_json` は `<` を逃がさない。原理上は任意のマークアップが動く（→[詳細設計書](detail.md) §7） |
-| 47 | GET /map | 境界値 | 空のDB | `/map` を取得 | `window.SONAR` も座標系も出力されない | 未実施 | | 0件で空の絵を描かない |
-| 48 | GET / | 境界値 | 空のDB | `/` を取得 | 統計もプレビューも出力されない | 未実施 | | 「0回」「0個」と並べない |
-| 49 | GET / | 正常系 | 会話1本以上 | `/` を取得し統計の項目数を数える | **2つ**（「いちばん深く掘り下げた回数」は無い） | 未実施 | | [設計書 画面遷移図](design/screens.md) §3 の「統計3つ」は古い記述（→[詳細設計書](detail.md) §4-5） |
-| 50 | GET /map | 異常系 | Cookie A と B でそれぞれ会話を作成済み | Cookie B で `/map` を取得 | B の会話だけが出て、A の会話・ノードが1件も混ざらない | 未実施 | | 51セッションでの実測は済んでいるが自動検査が無い（→[詳細設計書](detail.md) §6） |
+| 45 | GET /map | 正常系 | 会話1本・3ノードを作成済み | `/map` の HTML から `window.SONAR` の JSON を取り出す | `nodes` が root を含めて4件、`conversations` が1件 | 合格 | 2026-08-31 | |
+| 46 | GET /map | 異常系 | 起動済み | `answer` に `</script>` を含めて POST し、`/map` を取得 | HTML 中に生の `</script>` が現れず `<` に置換されている | 合格 | 2026-08-31 | `serde_json` は `<` を逃がさない。原理上は任意のマークアップが動く（→[詳細設計書](detail.md) §7） |
+| 47 | GET /map | 境界値 | 空のDB | `/map` を取得 | `window.SONAR` も座標系も出力されない | 不合格 | 2026-08-31 | 0件で空の絵を描かない ／ **`window.SONAR` は0件でも出力される**。座標系（`#stage`）は出ていないので期待の半分は満たす。`boot` の `<script>` が `if empty` の外にある（`pages/map.rs`） |
+| 48 | GET / | 境界値 | 空のDB | `/` を取得 | 統計もプレビューも出力されない | 合格 | 2026-08-31 | 「0回」「0個」と並べない |
+| 49 | GET / | 正常系 | 会話1本以上 | `/` を取得し統計の項目数を数える | **2つ**（「いちばん深く掘り下げた回数」は無い） | 合格 | 2026-08-31 | [設計書 画面遷移図](design/screens.md) §3 の「統計3つ」は古い記述（→[詳細設計書](detail.md) §4-5） |
+| 50 | GET /map | 異常系 | Cookie A と B でそれぞれ会話を作成済み | Cookie B で `/map` を取得 | B の会話だけが出て、A の会話・ノードが1件も混ざらない | 合格 | 2026-08-31 | 51セッションでの実測は済んでいるが自動検査が無い（→[詳細設計書](detail.md) §6） |
 
 ### 4-9. 地図の描画（`initMap`）— L2 `node check/map.mjs`
 
@@ -273,7 +273,7 @@ const scope = new Function(src + "\n;return { tidyX: tidyX, NODES: NODES, ROOT: 
 | 53 | initMap | 境界値 | なし | 19ターン（直線的に深い）で走らせる | 縦の最近接距離が 58px を下回らず、根が画面内にいる | 合格 | 2026-08-31 | 8/31 にここが壊れた。`fitView` に葉の数ではなくノード総数を渡していた（→[詳細設計書](detail.md) §7） |
 | 54 | initMap | 境界値 | なし | 会話24本の全体表示で走らせる | 全点が `viewBox` に収まる | 合格 | 2026-08-31 | 横一列だった頃の破綻点。放射化で解消（→[ADR-0003 地図のデータ構造とレイアウト](adr/0003-map-data.md) §6-2） |
 | 55 | initMap | 境界値 | なし | 会話400本の全体表示で走らせる | 例外を投げず、点が401個、最近接距離 57.9px、根が (0,0) で画面内にいる | 合格 | 2026-08-31 | 入り切らないことは破綻ではない。パンに渡すのが設計 |
-| 56 | initMap | 異常系 | なし | `window.SONAR` を与えずに `script.js` を読み込む | 組み込みの `CONVERSATIONS` / `NODES` で描画できる | 未実施 | | モック単体で開いたときの自己説明性（→[詳細設計書](detail.md) §4-7）。現在の `check/map.mjs` は必ず `SONAR` を与えるので**新規** |
+| 56 | initMap | 異常系 | なし | `window.SONAR` を与えずに `script.js` を読み込む | 組み込みの `CONVERSATIONS` / `NODES` で描画できる | 合格 | 2026-08-31 | モック単体で開いたときの自己説明性（→[詳細設計書](detail.md) §4-7）。現在の `check/map.mjs` は必ず `SONAR` を与えるので**新規** ／ `check/map.mjs` に追加 |
 
 ### 4-10. 逐次表示（`initTalk`）— L2 `node check/typing.mjs`
 
@@ -302,13 +302,13 @@ const scope = new Function(src + "\n;return { tidyX: tidyX, NODES: NODES, ROOT: 
 | 67 | 問いの形 | 異常系 | 項番65を実施済み | 二択判定（`それとも` 形と「AかBか、どっち／どちら」形の両方）にかける | 二択が0件 | 未実施 | | 同上。判定の穴は 8/31 に塞いだが、実使用で出るかは未確認 |
 | 68 | 問いの形 | 異常系 | 項番65を実施済み | NG語（「あなた」「タイプ」「だと思いますが」等）を検出する | 0件 | 未実施 | | 内面の断定を密輸させない（→[スコープと縮退ライン](scope.md) §2） |
 | 69 | 問いの形 | 境界値 | 項番65を実施済み | 各問いの文字数を数える | 30〜60字に収まる | 未実施 | | |
-| 70 | check/run.py | 正常系 | なし | `check/run.py` が読む system プロンプトのパスを確認する | `src/prompt/system.md`（正典）を実行時に読んでいる（複製を持たない） | 未実施 | | §1-1 の失敗クラス3。**いちばん気づきにくい**（→[詳細設計書](detail.md) §4-8） |
+| 70 | check/run.py | 正常系 | なし | `check/run.py` が読む system プロンプトのパスを確認する | `src/prompt/system.md`（正典）を実行時に読んでいる（複製を持たない） | 合格 | 2026-08-31 | §1-1 の失敗クラス3。**いちばん気づきにくい**（→[詳細設計書](detail.md) §4-8） ／ `check/http.py` に置いた（§3-1 の L4 は `check/run.py`＝触らないため） |
 
 ### 4-13. 検査そのもの（メタ）
 
 | 項番 | 対象 | 観点 | 前提条件 | 手順 | 期待結果 | 結果 | 確認日 | 備考 |
 |---|---|---|---|---|---|---|---|---|
-| 71 | cargo test / check/*.mjs / check/http.py | 異常系 | 各検査が実装済み | 検査ごとに期待値を1つわざと壊して実行する | すべて終了コード1になる | 未実施 | | **検査が検査になっていることの確認。** これを飛ばすと通っていることに意味が無い（→[詳細設計書](detail.md) §8） |
+| 71 | cargo test / check/*.mjs / check/http.py | 異常系 | 各検査が実装済み | 検査ごとに期待値を1つわざと壊して実行する | すべて終了コード1になる | 不合格 | 2026-08-31 | **検査が検査になっていることの確認。** これを飛ばすと通っていることに意味が無い（→[詳細設計書](detail.md) §8） ／ **実測：`check/*.mjs` 3本と `check/http.py` は 1、`cargo test` だけ 101**（cargo はテスト失敗時 101 を返す。非0である点は満たす） |
 
 ### 4-14. 通しと運用（手動）— L5
 
@@ -328,20 +328,22 @@ const scope = new Function(src + "\n;return { tidyX: tidyX, NODES: NODES, ROOT: 
 | | |
 |---|---|
 | 総項目数 | **77** |
-| 合格 | **13** |
-| 不合格 | **0** |
-| 未実施 | **64** |
-| 合格率 | **16.9%** |
+| 合格 | **62** |
+| 不合格 | **3** |
+| 未実施 | **12** |
+| 合格率 | **80.5%** |
 
-**合格13件はすべて 2026-08-31 に実際に走らせた結果**（`node check/{typing,preview,map}.mjs` が3本とも終了コード0）。未実施64件のうち、L1（24件）と L3（26件）は**テストコードがまだ存在しない**。
+**すべて 2026-08-31 に実際に走らせた結果。** 走る検査は5本（`cargo test` ／ `check/{typing,preview,map}.mjs` ／ `check/http.py`）。
+**不合格3件は実装を直さずそのまま残してある**（→§1-2）。未実施12件の内訳は、**課金が発生するもの6件**（項番36 と 65〜69）と、
+**ブラウザ操作・第三者テスト6件**（項番72〜77）。
 
-| 層 | 項番 | 総数 | 合格 | 未実施 |
-|---|---|---|---|---|
-| L1 `cargo test` | 1〜24 | 24 | 0 | 24 |
-| L3 `check/http.py` | 25〜50 | 26 | 0 | 26 |
-| L2 `check/*.mjs` | 51〜64 | 14 | 13 | 1 |
-| L4 `check/run.py` | 65〜70 | 6 | 0 | 6 |
-| メタ・手動 | 71〜77 | 7 | 0 | 7 |
+| 層 | 項番 | 総数 | 合格 | 不合格 | 未実施 |
+|---|---|---|---|---|---|
+| L1 `cargo test` | 1〜24 | 24 | 24 | 0 | 0 |
+| L3 `check/http.py` | 25〜50 | 26 | 23 | 2 | 1 |
+| L2 `check/*.mjs` | 51〜64 | 14 | 14 | 0 | 0 |
+| L4 `check/run.py` | 65〜70 | 6 | 1 | 0 | 5 |
+| メタ・手動 | 71〜77 | 7 | 0 | 1 | 6 |
 
 ---
 
