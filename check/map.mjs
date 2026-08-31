@@ -1,0 +1,151 @@
+// 地図の検査。`node check/map.mjs`
+//
+// **このファイルが無かったせいで、地図を丸ごと壊したまま出してしまった。**
+// tidyX を切り出したとき layout() の末尾に残った `leaves: slot` を見落とし、
+// initMap が ReferenceError で落ちる状態で commit した。
+// typing.mjs も preview.mjs も initMap を走らせていなかったので誰も気づかなかった。
+//
+// ここで見るのは：
+//   1. initMap が例外を投げずに最後まで走ること（← 上のクラスのバグ）
+//   2. 全体表示で点が viewBox に収まること
+//   3. 会話を開いたとき、枝全体が入るか、入らないなら
+//      **根が見えていて縦の間隔が下限を割らない**こと（引きすぎない設計）
+//   4. 深さの目安線が段数と一致すること
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const VIEW = { width: 1280, height: 720 };
+const MIN_GAP_PX = 58;   // script.js と同じ値
+const DEPTH_GAP = 130;
+
+function run(turns, branch) {
+  const nodes = { root: { children: ["d1"], quote: "根", question: "" } };
+  for (let i = 1; i <= turns; i++) {
+    const ch = i < turns ? ["d" + (i + 1)] : [];
+    if (branch && i === 2) ch.push("b1");
+    nodes["d" + i] = { children: ch, quote: "回答" + i, question: "問い" + i + "。" };
+  }
+  if (branch) nodes.b1 = { children: [], quote: "枝の回答", question: "枝の問い。" };
+  const SONAR = {
+    conversations: [{ id: "cv1", head: "d1", date: "2026年8月31日", mood: "もやもやしている" }],
+    nodes,
+  };
+
+  let CLOCK = 0;
+  const RAF = [];
+  const PENDING = [];
+  const els = {};
+  const IDS = new Set(["stage","chart","scale","edges","nodes","detail","detailbar","prev","next",
+    "reset","panelQuote","panelDepth","panelDate","panelQuestion","hint","bg","theme"]);
+
+  function mkEl(id, tag) {
+    const e = {
+      id, tag, children: [], attrs: {}, dataset: {}, _cls: new Set(), _ev: {},
+      // 実 DOM と同じく textContent への代入は子要素ごと消す
+      // （drawScale は gScale.textContent = "" で引き直す）
+      _tc: "", get textContent() { return this._tc; },
+      set textContent(v) { this._tc = v; if (v === "") this.children = []; },
+      style: { _p: {}, setProperty(k, v) { this._p[k] = v; }, getPropertyValue(k) { return this._p[k]; } },
+      setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k]; },
+      appendChild(c) { this.children.push(c); return c; }, removeChild() {}, remove() {},
+      querySelectorAll() { return []; }, focus() {}, insertAdjacentText() {},
+      addEventListener(t, f) { (this._ev[t] ||= []).push(f); },
+      getBoundingClientRect() { return { width: VIEW.width, height: VIEW.height, left: 0, top: 0 }; },
+      innerHTML: "", get scrollHeight() { return 0; }, set scrollTop(_v) {}, get scrollTop() { return 0; },
+    };
+    e.classList = { add: c => e._cls.add(c), remove: c => e._cls.delete(c),
+      toggle: (c, on) => (on ? e._cls.add(c) : e._cls.delete(c)), contains: c => e._cls.has(c) };
+    return e;
+  }
+  globalThis.performance = { now: () => CLOCK };
+  globalThis.requestAnimationFrame = f => { RAF.push(f); return RAF.length; };
+  globalThis.cancelAnimationFrame = () => { RAF.length = 0; };
+  const drain = () => { for (let i = 0; i < 400 && RAF.length; i++) { CLOCK += 16.7; RAF.splice(0).forEach(f => f(CLOCK)); } };
+  globalThis.window = { SONAR, matchMedia: () => ({ matches: false, addEventListener() {} }),
+    requestAnimationFrame: f => globalThis.requestAnimationFrame(f),
+    cancelAnimationFrame: h => globalThis.cancelAnimationFrame(h),
+    setInterval: () => 0, clearInterval() {}, addEventListener() {},
+    innerWidth: VIEW.width, innerHeight: VIEW.height };
+  globalThis.document = {
+    getElementById(id) { return IDS.has(id) ? (els[id] ||= mkEl(id)) : null; },
+    createElement: t => mkEl("_" + t, t), createElementNS: (_n, t) => mkEl("_" + t, t),
+    documentElement: { dataset: {} }, addEventListener() {}, querySelectorAll() { return []; },
+  };
+  globalThis.localStorage = { getItem: () => null, setItem() {} };
+  // 本物の ResizeObserver は observe() で同期発火しない。script.js は
+  // observe() の後に buildNodes() を呼ぶので、その順序を守る。
+  globalThis.ResizeObserver = class { constructor(cb) { this.cb = cb; } observe() { PENDING.push(this.cb); } };
+  globalThis.EventSource = class { addEventListener() {} close() {} };
+
+  new Function(fs.readFileSync(path.join(ROOT_DIR, "src/script.js"), "utf8"))();
+  PENDING.forEach(cb => cb([]));
+  drain();
+
+  const geom = () => {
+    const vb = els.chart.attrs.viewBox.split(" ").map(Number);
+    const cs = [];
+    (function w(e) { if (e.tag === "circle" && e.attrs.cx !== undefined) cs.push(e); e.children.forEach(w); })(els.nodes);
+    const ys = cs.map(c => parseFloat(c.attrs.cy));
+    const xs = cs.map(c => parseFloat(c.attrs.cx));
+    return { vb, xs, ys, circles: cs.length,
+      rules: els.scale.children.filter(e => e.tag === "line" && e.attrs.class === "chart__rule").length };
+  };
+
+  const all = geom();
+  const head = els.nodes.children.find(g => g.attrs["data-id"] === "d1");
+  head._ev.click[0]({ stopPropagation() {}, preventDefault() {} });
+  drain();
+  const open = geom();
+  return { all, open, mode: els.stage.dataset.mode, maxDepth: turns };
+}
+
+const fails = [];
+function check(label, cond, detail) {
+  console.log(`  ${cond ? "✅" : "❌"} ${label}${detail ? " — " + detail : ""}`);
+  if (!cond) fails.push(label);
+}
+
+for (const [turns, branch] of [[3, false], [8, true], [19, false], [25, false]]) {
+  console.log(`\n=== ${turns}ターン${branch ? "（枝分かれあり）" : ""} ===`);
+  let r;
+  try {
+    r = run(turns, branch);
+  } catch (e) {
+    console.log(`  ❌ initMap が例外を投げた — ${e.message}`);
+    fails.push(`${turns}ターンで例外: ${e.message}`);
+    continue;
+  }
+
+  // 全体表示：会話は畳まれるので必ず収まる
+  const a = r.all;
+  const aFits = Math.min(...a.ys) >= a.vb[1] && Math.max(...a.ys) <= a.vb[1] + a.vb[3];
+  check("全体表示で点が viewBox に収まる", aFits, `y ${Math.min(...a.ys).toFixed(0)}〜${Math.max(...a.ys).toFixed(0)} / view ${a.vb[1].toFixed(0)}〜${(a.vb[1] + a.vb[3]).toFixed(0)}`);
+
+  // 会話を開いた
+  const o = r.open;
+  check("会話が開いた（mode=conv）", r.mode === "conv", r.mode);
+  check("目安線が段数と一致", o.rules === r.maxDepth, `${o.rules}本 / 段数 ${r.maxDepth}`);
+
+  const gapPx = (DEPTH_GAP * VIEW.height) / o.vb[3];
+  check("縦の間隔が下限を割らない", gapPx >= MIN_GAP_PX - 0.5, `${gapPx.toFixed(1)}px（下限 ${MIN_GAP_PX}px）`);
+
+  const fits = Math.max(...o.ys) <= o.vb[1] + o.vb[3] + 0.5;
+  const rootVisible = Math.min(...o.ys) >= o.vb[1] - 0.5;
+  if (fits) {
+    check("枝全体が収まっている", true, `y ${Math.min(...o.ys).toFixed(0)}〜${Math.max(...o.ys).toFixed(0)}`);
+  } else {
+    // 引きすぎない設計。入り切らないときは根が見えていてパンで辿れること
+    check("入り切らないが根は見えている（上から読み下ろせる）", rootVisible,
+      `根 y=${Math.min(...o.ys).toFixed(0)} / view 上端 ${o.vb[1].toFixed(0)}`);
+    // 「引きすぎない」は「限界までは引く」でもある。手前で止まっていると、
+    // 出せるはずの段数を出さずにパンを強いることになる。
+    // （fitView の leaves に葉の数ではなくノード総数を渡すと、ここが手前で止まる）
+    check("限界まで引けている", gapPx <= MIN_GAP_PX + 2,
+      `${gapPx.toFixed(1)}px（下限 ${MIN_GAP_PX}px。手前で止まると出せる段数が減る）`);
+  }
+}
+
+if (fails.length) { console.error("\n❌ " + fails.join(" / ")); process.exit(1); }
+console.log("\n✅ すべて通った");

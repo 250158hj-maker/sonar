@@ -755,7 +755,7 @@ function initMap() {
 		return {
 			target: target,
 			visible: list,
-			leaves: slot,
+			leaves: placed.slots,
 			maxDepth: maxDepth,
 			minGap: minGap,
 			box: {
@@ -990,12 +990,30 @@ function initMap() {
 			h = w / aspect;
 		}
 
+		/* 縦にも同じ下限をかける。
+		   横（LEAF_GAP）だけを見ていると、**直線的に深い会話**——葉が1つなので
+		   横の制限がそもそも効かない——で点が縦に潰れる。
+		   19ターンの会話で縦の間隔が36pxまで詰まるのを実測した（下限は58px）。
+		   ここで止めて、残りはパンで見てもらうのは横と同じ考え方。 */
+		const hasDepth = box.h > PAD_Y * 2 + 1;
+		const limitH = hasDepth ? (DEPTH_GAP * ph) / MIN_GAP_PX : Infinity;
+		if (h > limitH) {
+			h = limitH;
+			w = h * aspect;
+		}
+
 		/* 縦が余ったら、上に寄せる。
 		   中央に置くと木の上下に均等な余白ができるが、
 		   この地図は「上が浅瀬・下が深海」なので、
 		   余った水は**下**にあるべき（＝まだ潜っていない深さ）。 */
+		/* 縦が余ったら上に寄せる。中央に置くと木の上下に均等な余白ができるが、
+		   この地図は「上が浅瀬・下が深海」なので、余った水は**下**にあるべき
+		   （＝まだ潜っていない深さ）。
+
+		   入り切らないときも**上に合わせる。** 中央に置くと根も末端も画面から出て、
+		   いま会話のどこを見ているのか分からなくなる。上から読み下ろせるようにする。 */
 		const slack = h - box.h;
-		const top = slack > 0 ? box.y - Math.min(slack * 0.18, 60) : box.y + box.h / 2 - h / 2;
+		const top = slack > 0 ? box.y - Math.min(slack * 0.18, 60) : box.y;
 
 		return {
 			x: box.x + box.w / 2 - w / 2,
@@ -1085,7 +1103,16 @@ function initMap() {
 			w: Math.max(1, Math.max.apply(null, xs) - Math.min.apply(null, xs)) + PAD_X * 2,
 			h: Math.max.apply(null, ys) - TOP + PAD_Y * 2
 		};
-		animateTo(fitView(box, order.length), reduceMotion ? 0 : 620);
+		/* fitView の leaves は「**横に並ぶ葉の数**」。横方向の下限（MIN_GAP_PX）を
+		   守るための値なので、会話のノード総数（order.length）を渡してはいけない。
+		   直線的に深い会話は葉が1つしかないのに、order.length を渡すと
+		   「葉がN個ある」と誤って横幅が制限され、**その制限が縦を切って
+		   根も末端も画面から出る**（14ターンで実測）。
+		   モックの会話は最長6段で症状が出なかったため、初期コミットから残っていた。 */
+		const leaves = order.filter(function (id) {
+			return !NODES[id].children.length;
+		}).length;
+		animateTo(fitView(box, leaves), reduceMotion ? 0 : 620);
 
 		stage.dataset.mode = "conv";
 		resetBtn.hidden = false;
