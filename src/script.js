@@ -97,6 +97,33 @@ function depthT(depth) {
    ============================================================= */
 const ROOT = "root";
 
+/* -------------------------------------------------------------
+   tidy tree の中核。葉に等間隔のスロットを割り当て、親は子の中央に置く。
+
+   どの子を見せるかを childrenOf で差し替えられるようにしてあるので、
+   **地図（会話を畳む）とホームのプレビュー（全部見せる）が同じ算術を共有する。**
+   ここを2つ持つと、プレビューと地図で枝の並びがずれる。
+   ------------------------------------------------------------- */
+function tidyX(childrenOf) {
+	let slot = 0;
+	const x = {};
+	const list = [];
+
+	(function walk(id) {
+		list.push(id);
+		const ch = childrenOf(id);
+		if (!ch.length) {
+			x[id] = slot;
+			slot += 1;
+			return;
+		}
+		ch.forEach(walk);
+		x[id] = (x[ch[0]] + x[ch[ch.length - 1]]) / 2;
+	})(ROOT);
+
+	return { x: x, list: list, slots: slot };
+}
+
 /* 会話の見出し。地図では畳んだり開いたりする単位になる。
    本実装ではサーバが window.SONAR に DB のデータを先出しする。
    || 以降はモックの固定データで、単体で開いたときのフォールバック
@@ -683,23 +710,13 @@ function initMap() {
 	}
 
 	function layout() {
-		let slot = 0;
-		const x = {};
-		const list = [];
+		/* 座標の算術はトップレベルの tidyX が持つ（ホームのプレビューと共有）。
+		   ここが渡す visibleChildren が「畳んだ会話は子を出さない」を表す。 */
+		const placed = tidyX(visibleChildren);
+		const x = placed.x;
+		const list = placed.list;
 
-		(function walk(id) {
-			list.push(id);
-			const ch = visibleChildren(id);
-			if (!ch.length) {
-				x[id] = slot;
-				slot += 1;
-				return;
-			}
-			ch.forEach(walk);
-			x[id] = (x[ch[0]] + x[ch[ch.length - 1]]) / 2;
-		})(ROOT);
-
-		const span = Math.max(0, slot - 1) * LEAF_GAP;
+		const span = Math.max(0, placed.slots - 1) * LEAF_GAP;
 		const target = {};
 		const byDepth = {};
 		let maxDepth = 0;
@@ -1347,6 +1364,107 @@ function initTheme() {
 	});
 }
 
+/* =============================================================
+   ホームの地図プレビュー
+   -------------------------------------------------------------
+   「起動時に、積み上がっているものが見える」ためのもの。
+   モックでは手置き座標の固定SVGだったが、実データと食い違うので
+   **地図と同じ NODES から、同じ tidyX で組み立てる**ようにした。
+
+   地図本体との違いは2つだけ：
+	 - 畳まない（全会話の全ノードを出す）。プレビューは俯瞰が役目なので
+	 - 縦は段数に合わせて詰める（深い会話があっても枠から出ない）
+
+   ラベルは出さない。全体表示でラベルを出さないのと同じ理由
+   （→ mock/README 設計の意図11）。押すと地図が開く。
+   ============================================================= */
+function initPreview() {
+	const svg = document.getElementById("pvChart");
+	if (!svg) return;
+
+	const NS = "http://www.w3.org/2000/svg";
+	const gRules = document.getElementById("pvRules");
+	const gEdges = document.getElementById("pvEdges");
+	const gNodes = document.getElementById("pvNodes");
+
+	const W = 640;
+	const H = 220;
+	const PAD = 26; /* 左右の余白。点が枠に触れないように */
+	const TOP = 18; /* 根のY。モックと同じ */
+	const ROW_MAX = 31; /* 1段あたりの縦の距離。モックと同じ */
+
+	/* 畳まない。地図を「全部開いた」状態と同じ並びになる */
+	const placed = tidyX(function (id) {
+		return NODES[id].children;
+	});
+
+	let maxDepth = 0;
+	placed.list.forEach(function (id) {
+		if (NODES[id].depth > maxDepth) maxDepth = NODES[id].depth;
+	});
+
+	/* 段が増えても枠から出さない。浅いうちはモックと同じ間隔のまま */
+	const row = maxDepth > 0 ? Math.min(ROW_MAX, (H - TOP - 16) / maxDepth) : ROW_MAX;
+	const span = Math.max(1, placed.slots - 1);
+	const step = (W - PAD * 2) / span;
+	/* 葉が1つだけのときは中央に置く（step が効かないため） */
+	const originX = placed.slots <= 1 ? W / 2 - 0 * step : PAD;
+
+	function px(id) {
+		return placed.slots <= 1 ? W / 2 : originX + placed.x[id] * step;
+	}
+	function py(id) {
+		return TOP + NODES[id].depth * row;
+	}
+
+	/* 深さの目安線。カテゴリ名は付けない。段数も固定しない */
+	for (let d = 1; d <= maxDepth; d += 1) {
+		const line = document.createElementNS(NS, "line");
+		line.setAttribute("x1", "0");
+		line.setAttribute("x2", String(W));
+		line.setAttribute("y1", String(TOP + d * row));
+		line.setAttribute("y2", String(TOP + d * row));
+		line.setAttribute("class", "pv-rule");
+		line.setAttribute("stroke-dasharray", "3 6");
+		gRules.appendChild(line);
+	}
+
+	/* 枝。地図本体と同じ縦向きのベジェ */
+	const k = row * 0.45;
+	placed.list.forEach(function (id) {
+		const parent = NODES[id].parent;
+		if (!parent) return;
+		const x1 = px(parent);
+		const y1 = py(parent);
+		const x2 = px(id);
+		const y2 = py(id);
+		const path = document.createElementNS(NS, "path");
+		path.setAttribute(
+			"d",
+			"M" + x1 + " " + y1 +
+				" C " + x1 + " " + (y1 + k) + ", " + x2 + " " + (y2 - k) + ", " + x2 + " " + y2
+		);
+		gEdges.appendChild(path);
+	});
+
+	/* 点。色は地図と同じランプ（--t）。根だけは深さの外にある */
+	placed.list.forEach(function (id) {
+		const depth = NODES[id].depth;
+		const c = document.createElementNS(NS, "circle");
+		c.setAttribute("cx", String(px(id)));
+		c.setAttribute("cy", String(py(id)));
+		c.setAttribute("r", id === ROOT ? "6" : "5");
+		c.setAttribute("class", "pv");
+		if (id === ROOT) {
+			c.style.setProperty("--c", "var(--d-root)");
+		} else {
+			c.style.setProperty("--t", depthT(depth).toFixed(3));
+		}
+		gNodes.appendChild(c);
+	});
+}
+
 initTheme();
 initTalk();
 initMap();
+initPreview();

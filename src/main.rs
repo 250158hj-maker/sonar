@@ -3,6 +3,7 @@
 //! 単一プロセス。バックグラウンドジョブもワーカーもキューも無い
 //! （→設計書 システム構成 §1）。
 
+mod mapdata;
 mod models;
 mod pages;
 mod questioner;

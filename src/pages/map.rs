@@ -6,10 +6,8 @@
 //!
 //! **差し替わるのはデータだけ。** 座標計算（`layout()`）には触らない
 //! （→正典 §6「マインドマップの実装方針」）。
+//! データの組み立ては `mapdata`（ホームのプレビューと共有）。
 
-use std::collections::BTreeMap;
-
-use serde::Serialize;
 use topcoat::{
     Result,
     asset::asset,
@@ -18,111 +16,14 @@ use topcoat::{
     view::{Unescaped, view},
 };
 
-use crate::models::Mood;
-use crate::store;
+use crate::mapdata;
 use crate::ui::{doc_head, site_header};
-
-// ---------------------------------------------------------------------------
-// script.js が今まさに消費している形（`CONVERSATIONS` / `NODES`）に合わせる。
-// 形を合わせておけば、置き換わるのは2つの const の右辺だけで済む。
-// ---------------------------------------------------------------------------
-
-/// 地図では畳んだり開いたりする単位（`script.js` の `CONVERSATIONS[]`）
-#[derive(Serialize)]
-struct Cv {
-    id: String,
-    head: String,
-    date: String,
-    mood: String,
-}
-
-/// `script.js` の `NODES[id]`。
-/// `depth` と `parent` と `conv` は持たない——`script.js` が `children` から
-/// 導出する（→設計書 データベース §5「導出できる値は保存しない」）。
-#[derive(Serialize)]
-struct Nd {
-    children: Vec<String>,
-    /// 本人が発した言葉。地図に置かれるのはこれだけで、AIの要約は入れない
-    quote: String,
-    /// そのとき聞かれたこと
-    question: String,
-}
-
-#[derive(Serialize)]
-struct Payload {
-    conversations: Vec<Cv>,
-    nodes: BTreeMap<String, Nd>,
-}
-
-/// DBの id を `script.js` のキー（文字列）にする。
-fn key(id: u64) -> String {
-    format!("n{id}")
-}
-
-/// `2026-08-31T11:21:00+09:00` → `2026年8月31日`
-fn jp_date(iso: &str) -> String {
-    let b = iso.as_bytes();
-    if b.len() < 10 {
-        return iso.to_string();
-    }
-    fn num(s: &str) -> &str {
-        s.trim_start_matches('0')
-    }
-    let (y, m, d) = (&iso[0..4], num(&iso[5..7]), num(&iso[8..10]));
-    format!("{y}年{m}月{d}日")
-}
 
 #[page("/map")]
 pub async fn map(cx: &Cx) -> Result {
-    let session = store::map_of_session(cx).await?;
-
-    let mut conversations = Vec::new();
-    let mut nodes: BTreeMap<String, Nd> = BTreeMap::new();
-    let mut heads = Vec::new();
-
-    for (cv, ns) in &session {
-        let Some(head) = ns.iter().find(|n| n.parent_id.is_none()) else {
-            // 1手目の無い会話は作られない（→store::begin_conversation）。
-            // 万一あってもここで黙って飛ばす。地図が描けなくなるより良い。
-            continue;
-        };
-        heads.push(key(head.id));
-        conversations.push(Cv {
-            id: format!("cv{}", cv.id),
-            head: key(head.id),
-            date: jp_date(&cv.started_at),
-            mood: Mood::parse(&cv.mood).unwrap_or(Mood::None).label().to_string(),
-        });
-
-        for n in ns {
-            let children = ns
-                .iter()
-                .filter(|c| c.parent_id == Some(n.id))
-                .map(|c| key(c.id))
-                .collect();
-            nodes.insert(
-                key(n.id),
-                Nd { children, quote: n.answer.clone(), question: n.question.clone() },
-            );
-        }
-    }
-
-    // 根「わたし」はテーブルに存在せず、画面側が描く（→設計書 データベース §4）。
-    let empty = conversations.is_empty();
-    nodes.insert(
-        "root".to_string(),
-        Nd {
-            children: heads,
-            quote: "すべての会話がここから枝分かれします。".to_string(),
-            question: String::new(),
-        },
-    );
-
-    // `serde_json` は `"` と `\` を逃がすが **`<` は逃がさない**。
-    // 回答に `</script>` と書かれるとスクリプト要素が途中で閉じ、地図が壊れる
-    // （原理上は任意のマークアップが動く）。`<` は正しい JSON エスケープなので無損失。
-    let json = serde_json::to_string(&Payload { conversations, nodes })?.replace('<', "\\u003c");
-    let boot = format!("window.SONAR={json};");
+    let data = mapdata::build(cx).await?;
+    let empty = data.is_empty();
+    let boot = data.script;
 
     view! {
         <!DOCTYPE html>
