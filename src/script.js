@@ -125,8 +125,11 @@ function depthT(depth) {
    ============================================================= */
 const ROOT = "root";
 
-/* 会話の見出し。地図では畳んだり開いたりする単位になる */
-const CONVERSATIONS = [
+/* 会話の見出し。地図では畳んだり開いたりする単位になる。
+   本実装ではサーバが window.SONAR に DB のデータを先出しする。
+   || 以降はモックの固定データで、単体で開いたときのフォールバック
+   （モック画面としての自己説明性を残すため）。 */
+const CONVERSATIONS = (window.SONAR && window.SONAR.conversations) || [
 	{ id: "cv1", head: "cv1_1", date: "2026年8月24日", mood: "もやもやしている" },
 	{ id: "cv2", head: "cv2_1", date: "2026年8月20日", mood: "考えを整理したい" },
 	{ id: "cv3", head: "cv3_1", date: "2026年8月18日", mood: "聞いてほしいことがある" },
@@ -137,8 +140,9 @@ const CONVERSATIONS = [
 ];
 
 /* 地図に置かれるのは本人が発した言葉だけ。AIの要約は入れない。
-   quote＝本人の発話、question＝そのとき聞かれたこと。 */
-const NODES = {
+   quote＝本人の発話、question＝そのとき聞かれたこと。
+   CONVERSATIONS と同じく window.SONAR が正、|| 以降はフォールバック。 */
+const NODES = (window.SONAR && window.SONAR.nodes) || {
 	root: { children: ["cv1_1", "cv2_1", "cv3_1", "cv4_1", "cv5_1", "cv6_1", "cv7_1"],
 		quote: "すべての会話がここから枝分かれします。", question: "" },
 

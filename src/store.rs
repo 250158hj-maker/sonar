@@ -225,3 +225,25 @@ pub async fn path_to(cx: &Cx, node_id: u64) -> Result<(Mood, Vec<Turn>)> {
     let mood = Mood::parse(&cv.mood).unwrap_or(Mood::None);
     Ok((mood, turns))
 }
+
+/// このセッションの全会話と、それぞれの全ノード（→設計書 データベース §6-2）。
+///
+/// 会話ごとに1クエリ投げる N+1 になっているが、学内デモの規模
+/// （会話は多くて数十件）では索引1本の引きが数回増えるだけで、
+/// `Node::all()` から他人のノードごと持ってきて絞るより
+/// **所有の境界が壊れない**。困ってから直す。
+pub async fn map_of_session(cx: &Cx) -> Result<Vec<(Conversation, Vec<Node>)>> {
+    let mut db = db(cx);
+    let sid = session_id(cx);
+
+    let mut convs = Conversation::filter_by_session_id(sid).exec(&mut db).await?;
+    convs.sort_by_key(|c| c.id);
+
+    let mut out = Vec::with_capacity(convs.len());
+    for cv in convs {
+        let mut nodes = Node::filter_by_conversation_id(cv.id).exec(&mut db).await?;
+        nodes.sort_by_key(|n| n.id);
+        out.push((cv, nodes));
+    }
+    Ok(out)
+}
