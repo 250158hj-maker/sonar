@@ -1,1 +1,3 @@
 /target
+/sonar.db
+/sonar.db-*
