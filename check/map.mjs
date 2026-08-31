@@ -20,7 +20,7 @@ const VIEW = { width: 1280, height: 720 };
 const MIN_GAP_PX = 58;   // script.js と同じ値
 const DEPTH_GAP = 130;
 
-function run(turns, branch) {
+function chain(turns, branch) {
   const nodes = { root: { children: ["d1"], quote: "根", question: "" } };
   for (let i = 1; i <= turns; i++) {
     const ch = i < turns ? ["d" + (i + 1)] : [];
@@ -28,10 +28,35 @@ function run(turns, branch) {
     nodes["d" + i] = { children: ch, quote: "回答" + i, question: "問い" + i + "。" };
   }
   if (branch) nodes.b1 = { children: [], quote: "枝の回答", question: "枝の問い。" };
-  const SONAR = {
+  return {
     conversations: [{ id: "cv1", head: "d1", date: "2026年8月31日", mood: "もやもやしている" }],
     nodes,
   };
+}
+
+/* 蓄積のケース。会話を n 本並べる（全体表示は会話単位で畳まれる）。 */
+function many(n) {
+  const nodes = { root: { children: [], quote: "根", question: "" } };
+  const conversations = [];
+  let id = 0;
+  for (let c = 1; c <= n; c++) {
+    const depth = 1 + (c % 5);
+    const head = "n" + ++id;
+    nodes.root.children.push(head);
+    nodes[head] = { children: [], quote: "回答" + c, question: "問い" + c + "。" };
+    conversations.push({ id: "cv" + c, head, date: "2026年8月31日", mood: "もやもやしている" });
+    let prev = head;
+    for (let d = 2; d <= depth; d++) {
+      const k = "n" + ++id;
+      nodes[prev].children.push(k);
+      nodes[k] = { children: [], quote: `回答${c}-${d}`, question: `問い${c}-${d}。` };
+      prev = k;
+    }
+  }
+  return { conversations, nodes };
+}
+
+function run(SONAR, openHead) {
 
   let CLOCK = 0;
   const RAF = [];
@@ -94,11 +119,11 @@ function run(turns, branch) {
   };
 
   const all = geom();
-  const head = els.nodes.children.find(g => g.attrs["data-id"] === "d1");
+  const head = els.nodes.children.find(g => g.attrs["data-id"] === openHead);
   head._ev.click[0]({ stopPropagation() {}, preventDefault() {} });
   drain();
   const open = geom();
-  return { all, open, mode: els.stage.dataset.mode, maxDepth: turns };
+  return { all, open, mode: els.stage.dataset.mode };
 }
 
 const fails = [];
@@ -111,7 +136,8 @@ for (const [turns, branch] of [[3, false], [8, true], [19, false], [25, false]])
   console.log(`\n=== ${turns}ターン${branch ? "（枝分かれあり）" : ""} ===`);
   let r;
   try {
-    r = run(turns, branch);
+    r = run(chain(turns, branch), "d1");
+    r.maxDepth = turns;
   } catch (e) {
     console.log(`  ❌ initMap が例外を投げた — ${e.message}`);
     fails.push(`${turns}ターンで例外: ${e.message}`);
@@ -145,6 +171,32 @@ for (const [turns, branch] of [[3, false], [8, true], [19, false], [25, false]])
     check("限界まで引けている", gapPx <= MIN_GAP_PX + 2,
       `${gapPx.toFixed(1)}px（下限 ${MIN_GAP_PX}px。手前で止まると出せる段数が減る）`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 蓄積したとき（→mock/README「積み残し」）
+//
+// README は「会話が数百件になったときは畳んでも全体表示に入り切らなくなる」と
+// 見積もっていたが、**実測では24本で入り切らなくなる**（1桁早い）。
+// 入り切らないこと自体は破綻ではない——下限（58px）で止めてパンに渡すのが設計。
+// ここで見るのは「潰れないこと」と「例外を出さずに描けること」。
+// ---------------------------------------------------------------------------
+for (const n of [11, 24, 100]) {
+  console.log(`\n=== 会話 ${n}本（全体表示）===`);
+  let r;
+  try {
+    r = run(many(n), "n1");
+  } catch (e) {
+    console.log(`  ❌ 例外 — ${e.message}`);
+    fails.push(`会話${n}本で例外: ${e.message}`);
+    continue;
+  }
+  const a = r.all;
+  const gap = (96 * VIEW.width) / a.vb[2];   // LEAF_GAP=96
+  check("点が潰れない（間隔が下限以上）", gap >= MIN_GAP_PX - 0.5, `${gap.toFixed(1)}px`);
+  check("会話の数だけ点がある", a.circles / 3 === n + 1, `${a.circles / 3} 個（会話${n}＋根）`);
+  const fitsAll = Math.min(...a.xs) >= a.vb[0] - 0.5 && Math.max(...a.xs) <= a.vb[0] + a.vb[2] + 0.5;
+  console.log(`  ${fitsAll ? "全体が1画面に入る" : "入り切らない（パンで辿る。24本以上では想定どおり）"}`);
 }
 
 if (fails.length) { console.error("\n❌ " + fails.join(" / ")); process.exit(1); }
