@@ -2004,6 +2004,7 @@ dependencies = [
  "toasty",
  "tokio",
  "topcoat",
+ "uuid",
 ]
 
 [[package]]
