@@ -163,11 +163,18 @@ impl Questioner for AnthropicQuestioner {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("送信に失敗: {e}"))?;
+            .map_err(|e| {
+                // 失敗の中身はここでしか見られない。境界から返す QuestionError は
+                // 画面側で「うまく問いを作れませんでした」に丸められるので、
+                // サーバログに残さないと 9/9 の第三者テスト中に原因が追えない。
+                eprintln!("[llm  ] 送信に失敗: {e}");
+                format!("送信に失敗: {e}")
+            })?;
 
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
+            eprintln!("[llm  ] HTTP {status}: {text}");
             return Err(format!("HTTP {status}: {text}").into());
         }
 

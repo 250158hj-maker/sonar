@@ -30,14 +30,18 @@ function mkEl(id) {
     // 実 DOM と同じく textContent への代入は中身を消す
     _tc: "", get textContent(){ return this._tc; }, set textContent(v){ this._tc = v; this._text = v; }, style: { setProperty(){}, height:"" },
     className: "", dataset: {}, children: [], _text: "",
-    classList: { add(){}, remove(){}, contains(){return false;} },
+    classList: {
+      add(c){ if (id === "failed" && c === "hidden") failedShown = false; },
+      remove(c){ if (id === "failed" && c === "hidden") failedShown = true; },
+      contains(){ return false; },
+    },
     appendChild(c){ this.children.push(c); c.parent = this; },
     removeChild(){}, remove(){ if(this.parent) this.parent.children = this.parent.children.filter(x=>x!==this); },
     querySelectorAll(){ return []; },
     addEventListener(t,f){ (this._ev ||= {})[t] = f; },
     insertAdjacentText(_pos, txt){ if (this.parent) this.parent._text += txt; },
     dispatchEvent(){}, focus(){}, get scrollHeight(){return 0;}, set scrollTop(_v){}, get scrollTop(){return 0;},
-    innerHTML: "", forEach(){},
+    _ih: "", get innerHTML(){return this._ih;}, set innerHTML(v){ this._ih = v; if (v === "") this.children = []; }, forEach(){},
   };
   return el;
 }
@@ -60,7 +64,9 @@ globalThis.localStorage = { getItem(){return null;}, setItem(){} };
 globalThis.ResizeObserver = class { observe(){} };
 globalThis.EventSource = class { constructor(){ this.h={}; ES.push(this);} addEventListener(t,f){this.h[t]=f;} close(){this.closed=true;} };
 const ES = [];
-globalThis.fetch = async () => ({ ok:true, json: async()=>({conversation_id:1,node_id:1}) });
+let POSTS = 0;
+let failedShown = false;
+globalThis.fetch = async () => { POSTS += 1; return { ok:true, json: async()=>({conversation_id:1,node_id:POSTS}) }; };
 
 const src = fs.readFileSync(path.join(ROOT, "src/script.js"), "utf8");
 new Function(src)();                       // initTheme/initTalk/initMap が末尾で走る
@@ -107,7 +113,8 @@ for (let i = 0; i < 400; i++) {
   snapshots.push(els.question._text.length);
   if (els.question._text === full) break;
 }
-console.log("  描き切った:", els.question._text === full ? "✅" : "❌ " + JSON.stringify(els.question._text));
+const okDrawn = els.question._text === full;
+console.log("  描き切った:", okDrawn ? "✅" : "❌ " + JSON.stringify(els.question._text));
 // 表示が縮んだ瞬間があればリセットが起きている
 let shrank = snapshots.filter((v,i) => i>0 && v < snapshots[i-1]).length;
 console.log("  表示が縮んだ回数:", shrank, shrank === 0 ? "（✅ リセットされていない）" : "（❌ デルタごとにリセットされている）");
@@ -115,8 +122,65 @@ const incs = snapshots.slice(1).map((v,i)=>v-snapshots[i]).filter(d=>d>0);
 const max = Math.max(...incs);
 console.log("  1フレームの最大増分:", max, max <= 2 ? "（✅ 一定速度。塊のまま出ていない）" : "（❌ 塊がそのまま出た）");
 
-if (els.question._text !== full || shrank !== 0 || max > 2) {
-  console.error("\n❌ 逐次表示が壊れている");
+
+// ===== 問いが出せなかったとき（→設計書 画面遷移図 §5-1）=====
+// 実測で Anthropic は時々失敗する（連続リクエストで 500 を観測）。
+// 失敗しても会話を終わらせないこと、答えた分の点が消えないことを見る。
+console.log("\n=== SSE が1デルタも返さずに切れた場合 ===");
+els.answer.value = "去年の文化祭のときも同じだった";
+await els.send._ev.click();
+await new Promise(r => setImmediate(r));
+const es2 = ES[ES.length - 1];
+const placedBefore = els.wrapList.children.length;
+es2.onerror();                              // 1つも届かないまま切れる
+const okFailed = failedShown;
+console.log("  #failed を出したか:", okFailed ? "✅" : "❌");
+const okClosed = es2.closed;
+console.log("  EventSource を閉じたか:", okClosed ? "✅（トークンを払い続けない）" : "❌");
+
+// 「もう一度」は POST をやり直さない——ノードは保存済みで、作り直すのは問いだけ
+const postsBefore = POSTS;
+els.retry._ev.click();
+await new Promise(r => setImmediate(r));
+const okNoRepost = POSTS === postsBefore;
+console.log("  「もう一度」で再POSTしていないか:", okNoRepost ? "✅" : "❌ POSTが増えた");
+const okRestream = ES.length > 2;
+console.log("  問いだけ作り直したか:", okRestream ? "✅" : "❌");
+
+// 会話を終える → 答えた分がまとめに残る
+els.stop._ev.click();
+const placedCount = els.wrapList.children.length;
+console.log("  まとめに残った点の数:", placedCount, "（答えた回数と一致すべき）");
+
+
+// ===== 受信中に「ここまでにする」（→設計書 画面遷移図 §5-2）=====
+// 中断しないと、誰も読まない出力にトークンを払い続ける。
+// stopTyping() は EventSource.close() と対でなければならない。
+console.log("\n=== 受信中に「ここまでにする」を押す ===");
+els.answer.value = "まだ途中だけど、ここでやめる";
+await els.send._ev.click();
+await new Promise(r => setImmediate(r));
+const es3 = ES[ES.length - 1];
+es3.h.delta({ data: JSON.stringify("途中まで届いた") });   // 受信中
+pump(16.7);
+els.stop._ev.click();                                      // ここまでにする
+const okAborted = es3.closed;
+console.log("  受信中の EventSource を閉じたか:", okAborted ? "✅" : "❌ 払い続けてしまう");
+
+// ===== 判定 =====
+const fails = [];
+if (!okDrawn)          fails.push("問いを描き切れていない");
+if (shrank !== 0)      fails.push("デルタごとに表示がリセットされている");
+if (max > 2)           fails.push("塊がそのまま出ている（一定速度になっていない）");
+if (!okFailed)         fails.push("SSE 失敗時に #failed を出していない");
+if (!okClosed)         fails.push("SSE 失敗時に EventSource を閉じていない");
+if (!okNoRepost)       fails.push("「もう一度」で回答を再POSTしている");
+if (!okRestream)       fails.push("「もう一度」で問いを作り直していない");
+if (!okAborted)        fails.push("受信中の中断で EventSource を閉じていない");
+
+
+if (fails.length) {
+  console.error("\n❌ " + fails.join(" / "));
   process.exit(1);
 }
 console.log("\n✅ すべて通った");
