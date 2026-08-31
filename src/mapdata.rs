@@ -131,3 +131,43 @@ pub async fn build(cx: &Cx) -> Result<MapData> {
         nodes: node_count,
     })
 }
+
+// ===========================================================================
+// L1 テスト（→テスト項目書 §4-4 項番20〜24）
+// `jp_date` / `key` は private。同じモジュールの中に置く（→§3-1）。
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 項番20（正常系）：`2026-08-31T11:21:00+09:00` → `2026年8月31日`
+    #[test]
+    fn t20_jp_date_formats_iso8601() {
+        assert_eq!(jp_date("2026-08-31T11:21:00+09:00"), "2026年8月31日");
+    }
+
+    /// 項番21（正常系）：0埋めが落ちる
+    #[test]
+    fn t21_jp_date_drops_zero_padding() {
+        assert_eq!(jp_date("2026-01-05T00:00:00+09:00"), "2026年1月5日");
+    }
+
+    /// 項番22（境界値）：`trim_start_matches('0')` が `"10"` を壊さない
+    #[test]
+    fn t22_jp_date_keeps_ten_intact() {
+        assert_eq!(jp_date("2026-10-10T00:00:00+09:00"), "2026年10月10日");
+    }
+
+    /// 項番23（異常系）：10文字未満はそのまま返す（パニックしない）
+    #[test]
+    fn t23_jp_date_passes_short_input_through() {
+        assert_eq!(jp_date("2026-08"), "2026-08");
+    }
+
+    /// 項番24（正常系）：`script.js` のノードキー形式
+    #[test]
+    fn t24_key_formats_node_id() {
+        assert_eq!((key(1), key(42)), ("n1".to_string(), "n42".to_string()));
+    }
+}

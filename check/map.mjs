@@ -144,6 +144,8 @@ function run(SONAR, openHead) {
   };
 
   const all = geom();
+  // openHead を渡さないときは全体表示のまま返す（→項番56 は「開く」を含まない）
+  if (!openHead) return { all };
   const head = els.nodes.children.find(g => g.attrs["data-id"] === openHead);
   head._ev.click[0]({ stopPropagation() {}, preventDefault() {} });
   drain();
@@ -243,6 +245,27 @@ for (const n of [11, 24, 50, 100, 400]) {
   check("入り切らなくても、わたしは画面内にいる",
     0 >= a.vb[0] - 0.5 && 0 <= a.vb[0] + a.vb[2] + 0.5 &&
     0 >= a.vb[1] - 0.5 && 0 <= a.vb[1] + a.vb[3] + 0.5, "根 (0, 0)");
+}
+
+// ---------------------------------------------------------------------------
+// 項番56：window.SONAR を与えずに script.js を読み込む
+//
+// script.js は `(window.SONAR && window.SONAR.conversations) || [...]` の形で
+// モックの固定データに落ちる。**モック単体で開いたときの自己説明性**が
+// 生きているかの確認（→詳細設計書 §4-7）。ここが死ぬと、mock/map.html を
+// そのまま開いた人に空の座標系だけが出る。
+// ---------------------------------------------------------------------------
+console.log("\n=== 項番56：window.SONAR を与えない（モック単体で開いたとき）===");
+{
+  let r = null, err = null;
+  try {
+    r = run(undefined, null);          // SONAR を渡さない＝window.SONAR は undefined
+  } catch (e) {
+    err = e;
+  }
+  const points = r ? r.all.circles / 3 : 0;
+  check("組み込みの CONVERSATIONS / NODES だけで描ける", !err && points === 8,
+    err ? `例外: ${err.message}` : `${points}個（組み込みの会話7＋根）`);
 }
 
 if (fails.length) { console.error("\n❌ " + fails.join(" / ")); process.exit(1); }

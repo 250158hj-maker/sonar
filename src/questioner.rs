@@ -241,3 +241,140 @@ fn drain_frames(buf: &mut String, pending: &mut VecDeque<String>) {
         }
     }
 }
+
+// ===========================================================================
+// L1 テスト（→テスト項目書 §4-2 項番7〜13 ／ §4-3 項番14〜19）
+// `drain_frames` は private。`tests/` からは見えないので同じモジュールに置く（→§3-1）。
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- §4-2 steer ---------------------------------------------------------
+
+    /// 項番7（正常系）：Fog ＋ 30文字 → 深める側
+    #[test]
+    fn t07_steer_fog_with_long_answer() {
+        assert_eq!(steer(Mood::Fog, &"あ".repeat(30)), "一歩ずつ深める。");
+    }
+
+    /// 項番8（境界値）：19文字＝`SHORT_ANSWER_CHARS`(20) 未満 → 短い側
+    #[test]
+    fn t08_steer_fog_with_19_chars_is_short() {
+        assert_eq!(
+            steer(Mood::Fog, &"あ".repeat(19)),
+            "深めない。同じ深さで、いま出ている言葉について聞き直す。"
+        );
+    }
+
+    /// 項番9（境界値）：境界ちょうど。判定は `<` であって `<=` ではない
+    #[test]
+    fn t09_steer_fog_with_20_chars_is_not_short() {
+        assert_eq!(steer(Mood::Fog, &"あ".repeat(20)), "一歩ずつ深める。");
+    }
+
+    /// 項番10（正常系）：Chat は長さで分岐しない（Listen / Sort も同じ性質）
+    #[test]
+    fn t10_steer_chat_does_not_branch_on_length() {
+        let got: Vec<&str> =
+            [0, 19, 20, 40].into_iter().map(|n| steer(Mood::Chat, &"あ".repeat(n))).collect();
+        assert!(got.iter().all(|s| *s == got[0]), "0 / 19 / 20 / 40 文字で割れた: {got:?}");
+    }
+
+    /// 項番11（境界値）：0文字は短い側
+    #[test]
+    fn t11_steer_none_with_empty_answer_is_short() {
+        assert_eq!(steer(Mood::None, ""), "深めない。同じ深さで別のことを聞く。");
+    }
+
+    /// 項番12（境界値）：`chars().count()` で数える。バイト長でも UTF-16 長でもない。
+    /// 絵文字10 ＋ かな9 ＝ 19文字。バイト長なら67、UTF-16 長なら29——
+    /// どちらで数えても20以上になり「短くない」側へ落ちる。
+    #[test]
+    fn t12_steer_counts_chars_not_bytes_or_utf16() {
+        let answer = format!("{}{}", "😀".repeat(10), "あ".repeat(9));
+        assert_eq!(
+            steer(Mood::Fog, &answer),
+            "深めない。同じ深さで、いま出ている言葉について聞き直す。"
+        );
+    }
+
+    /// 項番13（正常系）：検査ハーネスと実装の指示文がずれていないこと（→§1-1 の失敗クラス3）。
+    /// 7種は `steer` から引き出す。ここに書き写すと、写しどうしの照合になって意味が無い。
+    #[test]
+    fn t13_all_steer_strings_appear_in_run_py() {
+        let run_py = include_str!("../check/run.py");
+        let mut all: Vec<&'static str> = Vec::new();
+        for mood in [Mood::Chat, Mood::Listen, Mood::Fog, Mood::Sort, Mood::None] {
+            for answer in ["", "あ".repeat(SHORT_ANSWER_CHARS).as_str()] {
+                let s = steer(mood, answer);
+                if !all.contains(&s) {
+                    all.push(s);
+                }
+            }
+        }
+        let missing: Vec<&str> = all.iter().copied().filter(|s| !run_py.contains(s)).collect();
+        assert!(
+            all.len() == 7 && missing.is_empty(),
+            "steer の戻り値は {}種（期待7種）／ check/run.py に無いもの: {missing:?}",
+            all.len()
+        );
+    }
+
+    // -- §4-3 drain_frames --------------------------------------------------
+
+    /// `content_block_delta` の1フレーム（末尾の `\n\n` 込み）
+    fn delta_frame(text: &str) -> String {
+        format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"text\":\"{text}\"}}}}\n\n")
+    }
+
+    fn drain(input: &str) -> (Vec<String>, String) {
+        let mut buf = input.to_string();
+        let mut pending = VecDeque::new();
+        drain_frames(&mut buf, &mut pending);
+        (pending.into_iter().collect(), buf)
+    }
+
+    /// 項番14（正常系）：pending に1件積まれ、buf が空文字になる
+    #[test]
+    fn t14_drain_frames_takes_one_complete_frame() {
+        assert_eq!(drain(&delta_frame("問い")), (vec!["問い".to_string()], String::new()));
+    }
+
+    /// 項番15（正常系）：2フレーム連結 → 受信順に2件
+    #[test]
+    fn t15_drain_frames_keeps_receive_order() {
+        let input = format!("{}{}", delta_frame("問"), delta_frame("い"));
+        assert_eq!(drain(&input).0, vec!["問".to_string(), "い".to_string()]);
+    }
+
+    /// 項番16（境界値）：`\n\n` を含まない途中までのチャンクは、次のチャンクまで buf に残る
+    #[test]
+    fn t16_drain_frames_holds_incomplete_chunk() {
+        let partial = "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"問";
+        assert_eq!(drain(partial), (vec![], partial.to_string()));
+    }
+
+    /// 項番17（境界値）：完成した1フレーム ＋ 次フレームの先頭 → pending 1件、buf に未完成分だけ
+    #[test]
+    fn t17_drain_frames_leaves_only_the_incomplete_tail() {
+        let head = "data: {\"type\":\"content_block_de";
+        let input = format!("{}{head}", delta_frame("問い"));
+        assert_eq!(drain(&input), (vec!["問い".to_string()], head.to_string()));
+    }
+
+    /// 項番18（異常系）：壊れた JSON はパニックせず、その行を捨てる
+    #[test]
+    fn t18_drain_frames_discards_broken_json() {
+        assert_eq!(drain("data: {壊れたJSON}\n\n").0, Vec::<String>::new());
+    }
+
+    /// 項番19（正常系）：usage / stop_reason は境界から返さない（→詳細設計書 §2）
+    #[test]
+    fn t19_drain_frames_does_not_emit_message_delta() {
+        let frame = "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\
+                     \"usage\":{\"output_tokens\":42}}\n\n";
+        assert_eq!(drain(frame).0, Vec::<String>::new());
+    }
+}

@@ -108,3 +108,64 @@ impl Mood {
         }
     }
 }
+
+// ===========================================================================
+// L1 テスト（→テスト項目書 §4-1 項番1〜6）
+// 関数名の `tNN` が項番。表と1対1で対応させる。
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 5値。順序は `as_str` / `parse` / `label` の match と同じ。
+    const ALL: [Mood; 5] = [Mood::Chat, Mood::Listen, Mood::Fog, Mood::Sort, Mood::None];
+
+    /// 項番1（正常系）：`Mood::parse("fog")` → `Some(Mood::Fog)`
+    #[test]
+    fn t01_parse_fog_returns_some_fog() {
+        assert_eq!(Mood::parse("fog"), Some(Mood::Fog));
+    }
+
+    /// 項番2（正常系）：chat / listen / fog / sort / none の5件とも `Some`
+    #[test]
+    fn t02_parse_accepts_all_five_values() {
+        let none_of: Vec<&str> = ["chat", "listen", "fog", "sort", "none"]
+            .into_iter()
+            .filter(|s| Mood::parse(s).is_none())
+            .collect();
+        assert!(none_of.is_empty(), "None が返った値: {none_of:?}");
+    }
+
+    /// 項番3（異常系）：大文字小文字を吸収しない
+    #[test]
+    fn t03_parse_does_not_absorb_case() {
+        assert_eq!(Mood::parse("Fog"), None);
+    }
+
+    /// 項番4（異常系）：表示名（`Mood::Fog.label()` の文字列）を値として送っても通らない
+    #[test]
+    fn t04_parse_rejects_display_label() {
+        assert_eq!(Mood::parse("もやもやしている"), None);
+    }
+
+    /// 項番5（正常系）：`parse(m.as_str())` の往復で元に戻る
+    #[test]
+    fn t05_as_str_round_trips_through_parse() {
+        let broken: Vec<&str> =
+            ALL.into_iter().filter(|m| Mood::parse(m.as_str()) != Some(*m)).map(Mood::as_str).collect();
+        assert!(broken.is_empty(), "往復で戻らなかった値: {broken:?}");
+    }
+
+    /// 項番6（正常系）：地図の会話見出しと気分ボタンの文言が一致していること。
+    /// 写しを作らず `src/script.js`（本番と同じファイル）を直に読む（→§3-3-5）。
+    #[test]
+    fn t06_fog_label_is_present_in_script_js() {
+        let script_js = include_str!("script.js");
+        assert!(
+            script_js.contains(Mood::Fog.label()),
+            "script.js に {:?} が無い",
+            Mood::Fog.label()
+        );
+    }
+}
