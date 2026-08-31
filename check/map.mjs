@@ -59,7 +59,13 @@ function many(n) {
 function run(SONAR, openHead) {
 
   let CLOCK = 0;
-  const RAF = [];
+  /* ハンドル付きで持つ。**ここを配列にして cancel でまとめて捨てると、
+     animateTo(ビューの補間) が applyLayout(点の移動) のフレームまで
+     消してしまい、点が動かないまま「動いた」ことになる。**
+     全体表示と会話を開いた状態で根の位置が同じだった頃は症状が出ず、
+     放射状にして初めて露見した。 */
+  const RAF = new Map();
+  let nextRaf = 1;
   const PENDING = [];
   const els = {};
   const IDS = new Set(["stage","chart","scale","edges","nodes","detail","detailbar","prev","next",
@@ -85,9 +91,16 @@ function run(SONAR, openHead) {
     return e;
   }
   globalThis.performance = { now: () => CLOCK };
-  globalThis.requestAnimationFrame = f => { RAF.push(f); return RAF.length; };
-  globalThis.cancelAnimationFrame = () => { RAF.length = 0; };
-  const drain = () => { for (let i = 0; i < 400 && RAF.length; i++) { CLOCK += 16.7; RAF.splice(0).forEach(f => f(CLOCK)); } };
+  globalThis.requestAnimationFrame = f => { const h = nextRaf++; RAF.set(h, f); return h; };
+  globalThis.cancelAnimationFrame = h => { RAF.delete(h); };
+  const drain = () => {
+    for (let i = 0; i < 400 && RAF.size; i++) {
+      CLOCK += 16.7;
+      const fns = [...RAF.values()];
+      RAF.clear();
+      fns.forEach(f => f(CLOCK));
+    }
+  };
   globalThis.window = { SONAR, matchMedia: () => ({ matches: false, addEventListener() {} }),
     requestAnimationFrame: f => globalThis.requestAnimationFrame(f),
     cancelAnimationFrame: h => globalThis.cancelAnimationFrame(h),
@@ -114,7 +127,19 @@ function run(SONAR, openHead) {
     (function w(e) { if (e.tag === "circle" && e.attrs.cx !== undefined) cs.push(e); e.children.forEach(w); })(els.nodes);
     const ys = cs.map(c => parseFloat(c.attrs.cy));
     const xs = cs.map(c => parseFloat(c.attrs.cx));
-    return { vb, xs, ys, circles: cs.length,
+    // 点（3円で1点）ごとの座標にまとめてから最近接距離を測る
+    const pts = [];
+    for (let i = 0; i < cs.length; i += 3) pts.push({ x: xs[i], y: ys[i] });
+    let near = Infinity;
+    for (let i = 0; i < pts.length; i++)
+      for (let j = i + 1; j < pts.length; j++)
+        near = Math.min(near, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y));
+    // 枝の形。放射状では直線（M…L…）、木では縦のS字（M…C…）であるべき
+    const ds = els.edges.children
+      .map(e => e.attrs.d).filter(d => d && d.length);
+    const curved = ds.filter(d => d.includes("C")).length;
+    const straight = ds.filter(d => d.includes("L")).length;
+    return { vb, xs, ys, pts, near, edges: ds.length, curved, straight, circles: cs.length,
       rules: els.scale.children.filter(e => e.tag === "line" && e.attrs.class === "chart__rule").length };
   };
 
@@ -144,10 +169,16 @@ for (const [turns, branch] of [[3, false], [8, true], [19, false], [25, false]])
     continue;
   }
 
-  // 全体表示：会話は畳まれるので必ず収まる
+  // 全体表示（放射）：会話は畳まれるので必ず収まる。縦横の両方を見る
   const a = r.all;
-  const aFits = Math.min(...a.ys) >= a.vb[1] && Math.max(...a.ys) <= a.vb[1] + a.vb[3];
-  check("全体表示で点が viewBox に収まる", aFits, `y ${Math.min(...a.ys).toFixed(0)}〜${Math.max(...a.ys).toFixed(0)} / view ${a.vb[1].toFixed(0)}〜${(a.vb[1] + a.vb[3]).toFixed(0)}`);
+  const inX = Math.min(...a.xs) >= a.vb[0] - 0.5 && Math.max(...a.xs) <= a.vb[0] + a.vb[2] + 0.5;
+  const inY = Math.min(...a.ys) >= a.vb[1] - 0.5 && Math.max(...a.ys) <= a.vb[1] + a.vb[3] + 0.5;
+  check("全体表示で点が viewBox に収まる", inX && inY,
+    `x ${Math.min(...a.xs).toFixed(0)}〜${Math.max(...a.xs).toFixed(0)} / y ${Math.min(...a.ys).toFixed(0)}〜${Math.max(...a.ys).toFixed(0)}`);
+  // わたしは中心にいる（放射の意味そのもの）
+  const cx = a.vb[0] + a.vb[2] / 2, cy = a.vb[1] + a.vb[3] / 2;
+  check("わたしが viewBox の中心にいる", Math.hypot(0 - cx, 0 - cy) < 1,
+    `中心 (${cx.toFixed(0)}, ${cy.toFixed(0)}) / 根 (0, 0)`);
 
   // 会話を開いた
   const o = r.open;
@@ -181,7 +212,7 @@ for (const [turns, branch] of [[3, false], [8, true], [19, false], [25, false]])
 // 入り切らないこと自体は破綻ではない——下限（58px）で止めてパンに渡すのが設計。
 // ここで見るのは「潰れないこと」と「例外を出さずに描けること」。
 // ---------------------------------------------------------------------------
-for (const n of [11, 24, 100]) {
+for (const n of [11, 24, 50, 100, 400]) {
   console.log(`\n=== 会話 ${n}本（全体表示）===`);
   let r;
   try {
@@ -192,11 +223,26 @@ for (const n of [11, 24, 100]) {
     continue;
   }
   const a = r.all;
-  const gap = (96 * VIEW.width) / a.vb[2];   // LEAF_GAP=96
-  check("点が潰れない（間隔が下限以上）", gap >= MIN_GAP_PX - 0.5, `${gap.toFixed(1)}px`);
+  // 放射状では「横の間隔」に意味が無いので、**いちばん近い2点の距離**で測る
+  const gap = (a.near * VIEW.width) / a.vb[2];
+  check("点が潰れない（最も近い2点が下限以上）", gap >= MIN_GAP_PX - 0.5, `${gap.toFixed(1)}px`);
   check("会話の数だけ点がある", a.circles / 3 === n + 1, `${a.circles / 3} 個（会話${n}＋根）`);
-  const fitsAll = Math.min(...a.xs) >= a.vb[0] - 0.5 && Math.max(...a.xs) <= a.vb[0] + a.vb[2] + 0.5;
-  console.log(`  ${fitsAll ? "全体が1画面に入る" : "入り切らない（パンで辿る。24本以上では想定どおり）"}`);
+  const okX = Math.min(...a.xs) >= a.vb[0] - 0.5 && Math.max(...a.xs) <= a.vb[0] + a.vb[2] + 0.5;
+  const okY = Math.min(...a.ys) >= a.vb[1] - 0.5 && Math.max(...a.ys) <= a.vb[1] + a.vb[3] + 0.5;
+  check("目安線を引いていない（深さが1段しかない）", a.rules === 0, `${a.rules}本`);
+  // 放射状では子は根からの光線上にあるので、枝は直線が正しい。
+  // 縦向きのS字を使うと、親より上にある子（約半数）で制御点が反転する。
+  check("枝が直線で描かれている", a.curved === 0 && a.straight === n,
+    `直線 ${a.straight} / 曲線 ${a.curved}（会話${n}本ぶん）`);
+  // 入り切るかどうかは会話数しだい。入らないこと自体は破綻ではない
+  // （下限で止めてパンに渡すのが設計）。ここでは事実だけ出す。
+  console.log(`  ${okX && okY ? "全体が1画面に入る" : "入り切らない（パンで辿る）"}`
+    + ` — x ${Math.min(...a.xs).toFixed(0)}〜${Math.max(...a.xs).toFixed(0)}`
+    + ` / y ${Math.min(...a.ys).toFixed(0)}〜${Math.max(...a.ys).toFixed(0)}`);
+  // ただし**わたしは必ず見えている**こと。中心を見失うと現在地が分からない
+  check("入り切らなくても、わたしは画面内にいる",
+    0 >= a.vb[0] - 0.5 && 0 <= a.vb[0] + a.vb[2] + 0.5 &&
+    0 >= a.vb[1] - 0.5 && 0 <= a.vb[1] + a.vb[3] + 0.5, "根 (0, 0)");
 }
 
 if (fails.length) { console.error("\n❌ " + fails.join(" / ")); process.exit(1); }

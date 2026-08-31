@@ -51,7 +51,7 @@ pub async fn map(cx: &Cx) -> Result {
                     <div class="stage" id="stage" data-mode="all">
                         <svg class="chart" id="chart" viewBox="0 0 1000 700"
                              preserveAspectRatio="xMidYMid meet"
-                             aria-label="これまでの会話から作られた地図。縦の位置が、その話題を何回掘り下げたかを表す">
+                             aria-label="これまでの会話から作られた地図。わたしを中心に会話が広がり、会話を開くと掘り下げた深さが縦に伸びる">
                             <defs>
                                 <linearGradient id="depth" x1="0" y1="0" x2="0" y2="1">
                                     <stop class="chart__grad--top" offset="0"></stop>

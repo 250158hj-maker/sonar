@@ -668,6 +668,11 @@ function initMap() {
 	const LEAF_GAP = 96; /* 葉と葉の横の間隔 */
 	const DEPTH_GAP = 130; /* 1段掘り下げるごとの縦の距離 */
 	const TOP = 48; /* 根のY */
+
+	/* 全体表示（放射）の同心円の間隔。DEPTH_GAP と同じ値にしてある。
+	   会話を開いたときの「わたしから1手目までの距離」と、全体表示の
+	   「わたしから会話までの距離」を揃えるため——同じ1歩が同じ長さに見える。 */
+	const RING_GAP = DEPTH_GAP;
 	const PAD_X = 90;
 	const PAD_Y = 70;
 
@@ -688,6 +693,7 @@ function initMap() {
 	let raf = 0;
 	let moveRaf = 0;
 	let selected = null; /* 開いている点 */
+	let radialMode = true; /* 全体表示（放射）か。枝の描き方が変わる（→place） */
 	let openConv = null; /* 開いている会話 */
 	let pos = {}; /* いま画面に描かれている座標。畳む／開くのアニメに使う */
 	let order = []; /* 開いている会話の中を辿る順序（深さ優先） */
@@ -709,7 +715,92 @@ function initMap() {
 		return node.conv === openConv ? node.children : [];
 	}
 
+	/* 全体表示の同心円。内側から順に、円周に LEAF_GAP 間隔で入るだけ入れる。
+	   1本の円に全部載せると半径が会話数に比例して伸び、
+	   引いたとき中央が空洞の輪になる（100会話で半径1528）。
+	   同心円に割ると半径は√に近い伸び方になる（100会話で650）。 */
+	function ringsFor(n) {
+		const rings = [];
+		let placed = 0;
+		let k = 1;
+		while (placed < n) {
+			const r = k * RING_GAP;
+			const cap = Math.max(1, Math.floor((2 * Math.PI * r) / LEAF_GAP));
+			const take = Math.min(cap, n - placed);
+			rings.push({ r: r, count: take, from: placed });
+			placed += take;
+			k += 1;
+		}
+		return rings;
+	}
+
+	/* 見えている点どうしの、いちばん近い距離（ユークリッド）。
+	   引きすぎ防止の下限をここから決める（→fitView）。
+	   横方向と縦方向を別々に見ていた旧実装を1つにまとめたもの——
+	   放射状では「横」も「縦」も意味を持たないため。 */
+	function nearest(target, list) {
+		let min = Infinity;
+		for (let i = 0; i < list.length; i++) {
+			const a = target[list[i]];
+			for (let j = i + 1; j < list.length; j++) {
+				const b = target[list[j]];
+				const dx = a.x - b.x;
+				const dy = a.y - b.y;
+				const d = Math.sqrt(dx * dx + dy * dy);
+				if (d < min) min = d;
+			}
+		}
+		return min;
+	}
+
+	/* 全体表示：わたしを中心に、会話を同心円へ置く。
+	   ここには深さが無い（見えているのは根と各会話の1手目だけで、
+	   1手目はすべて深さ1）ので、縦軸＝深さを表す必要が無い。
+	   会話を開くと縦の木に戻る（→layout）。 */
+	function layoutRadial() {
+		const heads = NODES[ROOT].children;
+		const n = heads.length;
+		const target = { root: { x: 0, y: 0 } };
+		const list = [ROOT];
+		let maxR = 0;
+
+		ringsFor(n).forEach(function (ring, k) {
+			/* 円ごとに半歩ずらす。真っ直ぐ並ぶと放射状の筋に見えてしまう */
+			const offset = -Math.PI / 2 + (k % 2 ? Math.PI / ring.count : 0);
+			for (let i = 0; i < ring.count; i++) {
+				const id = heads[ring.from + i];
+				const th = offset + (2 * Math.PI * i) / ring.count;
+				target[id] = { x: ring.r * Math.cos(th), y: ring.r * Math.sin(th) };
+				list.push(id);
+			}
+			if (ring.r > maxR) maxR = ring.r;
+		});
+
+		const pad = Math.max(PAD_X, PAD_Y);
+		return {
+			target: target,
+			visible: list,
+			maxDepth: 1,
+			/* ラベルは根とホバー中のものしか出さない（→設計の意図11）ので、
+			   意味的ズームの判定は使われない。Infinity で「出してよい」側に倒す */
+			minGap: Infinity,
+			minDist: nearest(target, list),
+			radial: true,
+			box: {
+				x: -maxR - pad,
+				y: -maxR - pad,
+				w: (maxR + pad) * 2,
+				h: (maxR + pad) * 2
+			}
+		};
+	}
+
 	function layout() {
+		/* 全体表示は放射、会話を開いたら縦の木。
+		   overview と detail は違う問いに答えているので、レイアウトも分ける
+		   （→ADR-0003 追記）。 */
+		if (!openConv) return layoutRadial();
+
 		/* 座標の算術はトップレベルの tidyX が持つ（ホームのプレビューと共有）。
 		   ここが渡す visibleChildren が「畳んだ会話は子を出さない」を表す。 */
 		const placed = tidyX(visibleChildren);
@@ -755,9 +846,10 @@ function initMap() {
 		return {
 			target: target,
 			visible: list,
-			leaves: placed.slots,
 			maxDepth: maxDepth,
 			minGap: minGap,
+			minDist: nearest(target, list),
+			radial: false,
 			box: {
 				x: -span / 2 - PAD_X,
 				y: TOP - PAD_Y,
@@ -835,6 +927,13 @@ function initMap() {
 	   カテゴリ名は付けない（本人の発話を分類することになるため）。 */
 	function drawScale(maxDepth, box) {
 		gScale.textContent = "";
+
+		/* 全体表示では深さの目盛りを引かない。
+		   見えているのは根と各会話の1手目だけで、深さは1段しかない。
+		   旧実装はここで「会話の点の列をちょうど貫く破線」を1本引き、
+		   左端に「浅い／深い」の軸まで出していた——深さが1段の画面に
+		   深さの物差しが出ている状態だった。 */
+		if (!openConv) return;
 		for (let d = 1; d <= maxDepth; d += 1) {
 			const line = document.createElementNS(NS, "line");
 			line.setAttribute("class", "chart__rule");
@@ -878,6 +977,20 @@ function initMap() {
 			return;
 		}
 		const q = pos[parent];
+
+		if (radialMode) {
+			/* 放射状では子は根からの光線の上にあるので、枝は**直線**が正しい。
+			   縦向きのS字（下記）をそのまま使うと、親より上にある子——
+			   放射状では約半数——で制御点が反転し、S字が逆へ折れる。 */
+			e.edge.setAttribute(
+				"d",
+				"M" + q.x.toFixed(1) + "," + q.y.toFixed(1) +
+					" L" + p.x.toFixed(1) + "," + p.y.toFixed(1)
+			);
+			return;
+		}
+
+		/* 縦の木。親から下へ出て、子へ下から入る。「垂れ下がる」感じを作る */
 		const dy = (p.y - q.y) * 0.45;
 		e.edge.setAttribute(
 			"d",
@@ -893,6 +1006,7 @@ function initMap() {
 		cancelAnimationFrame(moveRaf);
 
 		minGapWorld = L.minGap;
+		radialMode = !!L.radial;
 		const visible = new Set(L.visible);
 		Object.keys(el).forEach(function (id) {
 			el[id].g.classList.toggle("is-hidden", !visible.has(id));
@@ -970,8 +1084,17 @@ function initMap() {
 
 	/* 木の全体が入るビュー。ただし引きすぎない。
 	   MIN_GAP_PX を下回るところまで引くと点が潰れて押せなくなるので、
-	   そこで止めて、残りはパンで見てもらう。 */
-	function fitView(box, leaves) {
+	   そこで止めて、残りはパンで見てもらう。
+
+	   `minDist` は**見えている点どうしの最も近い距離**（ユークリッド）。
+	   もとは横（LEAF_GAP）と縦（DEPTH_GAP）を別々に見ていたが、
+	   放射状では「横」も「縦」も意味を持たないので1つにまとめた。
+	   縦横の縮尺は同じなので、制約も1本で足りる。
+	   （旧実装と同じ値になることは確認済み——直線的に深い会話では
+	     minDist = DEPTH_GAP、横に広い木では minDist = LEAF_GAP になる）
+
+	   `centered` は縦の寄せ方。全体表示は中央、会話を開いたら上。 */
+	function fitView(box, minDist, centered) {
 		const r = svg.getBoundingClientRect();
 		const pw = r.width || 1;
 		const ph = r.height || 1;
@@ -984,36 +1107,27 @@ function initMap() {
 			w = h * aspect;
 		}
 
-		const limit = leaves > 1 ? (LEAF_GAP * pw) / MIN_GAP_PX : Infinity;
+		const limit = isFinite(minDist) ? (minDist * pw) / MIN_GAP_PX : Infinity;
 		if (w > limit) {
 			w = limit;
 			h = w / aspect;
 		}
 
-		/* 縦にも同じ下限をかける。
-		   横（LEAF_GAP）だけを見ていると、**直線的に深い会話**——葉が1つなので
-		   横の制限がそもそも効かない——で点が縦に潰れる。
-		   19ターンの会話で縦の間隔が36pxまで詰まるのを実測した（下限は58px）。
-		   ここで止めて、残りはパンで見てもらうのは横と同じ考え方。 */
-		const hasDepth = box.h > PAD_Y * 2 + 1;
-		const limitH = hasDepth ? (DEPTH_GAP * ph) / MIN_GAP_PX : Infinity;
-		if (h > limitH) {
-			h = limitH;
-			w = h * aspect;
-		}
-
-		/* 縦が余ったら、上に寄せる。
-		   中央に置くと木の上下に均等な余白ができるが、
-		   この地図は「上が浅瀬・下が深海」なので、
-		   余った水は**下**にあるべき（＝まだ潜っていない深さ）。 */
 		/* 縦が余ったら上に寄せる。中央に置くと木の上下に均等な余白ができるが、
-		   この地図は「上が浅瀬・下が深海」なので、余った水は**下**にあるべき
-		   （＝まだ潜っていない深さ）。
+		   会話を開いた地図は「上が浅瀬・下が深海」なので、余った水は**下**に
+		   あるべき（＝まだ潜っていない深さ）。
 
 		   入り切らないときも**上に合わせる。** 中央に置くと根も末端も画面から出て、
-		   いま会話のどこを見ているのか分からなくなる。上から読み下ろせるようにする。 */
+		   いま会話のどこを見ているのか分からなくなる。上から読み下ろせるようにする。
+
+		   全体表示（放射）は別。わたしが中心にいることが意味なので、
+		   余りも不足も**中央**に置く。 */
 		const slack = h - box.h;
-		const top = slack > 0 ? box.y - Math.min(slack * 0.18, 60) : box.y;
+		const top = centered
+			? box.y + box.h / 2 - h / 2
+			: slack > 0
+				? box.y - Math.min(slack * 0.18, 60)
+				: box.y;
 
 		return {
 			x: box.x + box.w / 2 - w / 2,
@@ -1088,7 +1202,7 @@ function initMap() {
 		world = L.box;
 		drawScale(L.maxDepth, L.box);
 		applyLayout(L, reduceMotion ? 0 : 520);
-		base = fitView(L.box, L.leaves);
+		base = fitView(L.box, L.minDist, !!L.radial);
 
 		/* 開いた会話が画面に収まるところまで寄る。
 		   根も範囲に入れる。枝がどこから生えているかが見えないと、
@@ -1103,16 +1217,16 @@ function initMap() {
 			w: Math.max(1, Math.max.apply(null, xs) - Math.min.apply(null, xs)) + PAD_X * 2,
 			h: Math.max.apply(null, ys) - TOP + PAD_Y * 2
 		};
-		/* fitView の leaves は「**横に並ぶ葉の数**」。横方向の下限（MIN_GAP_PX）を
-		   守るための値なので、会話のノード総数（order.length）を渡してはいけない。
-		   直線的に深い会話は葉が1つしかないのに、order.length を渡すと
-		   「葉がN個ある」と誤って横幅が制限され、**その制限が縦を切って
-		   根も末端も画面から出る**（14ターンで実測）。
-		   モックの会話は最長6段で症状が出なかったため、初期コミットから残っていた。 */
-		const leaves = order.filter(function (id) {
-			return !NODES[id].children.length;
-		}).length;
-		animateTo(fitView(box, leaves), reduceMotion ? 0 : 620);
+		/* 引きすぎ防止の下限は**この会話の中**で測る。全体の L.minDist を渡すと、
+		   畳んだままの他の会話どうしの間隔（LEAF_GAP）に引きずられ、
+		   開いた枝が実際より狭く見積もられる。
+
+		   （もとは「横に並ぶ葉の数」を渡す形だったが、会話のノード総数を
+		     渡していたため、直線的に深い会話——葉は1つしかない——で
+		     横幅が誤って制限され、その制限が縦を切って根も末端も
+		     画面から出ていた。14ターンで実測。） */
+		const mine = order.concat([ROOT]);
+		animateTo(fitView(box, nearest(L.target, mine), false), reduceMotion ? 0 : 620);
 
 		stage.dataset.mode = "conv";
 		resetBtn.hidden = false;
@@ -1128,7 +1242,7 @@ function initMap() {
 		world = L.box;
 		drawScale(L.maxDepth, L.box);
 		applyLayout(L, reduceMotion ? 0 : 520);
-		base = fitView(L.box, L.leaves);
+		base = fitView(L.box, L.minDist, !!L.radial);
 		animateTo(base, reduceMotion ? 0 : 520);
 
 		stage.dataset.mode = "all";
@@ -1329,7 +1443,7 @@ function initMap() {
 	new ResizeObserver(function () {
 		const L = layout();
 		world = L.box;
-		base = fitView(L.box, L.leaves);
+		base = fitView(L.box, L.minDist, !!L.radial);
 		if (first) {
 			first = false;
 			drawScale(L.maxDepth, L.box);
