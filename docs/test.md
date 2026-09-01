@@ -161,7 +161,7 @@ const scope = new Function(src + "\n;return { tidyX: tidyX, NODES: NODES, ROOT: 
 
 | | |
 |---|---|
-| `node` | **nodenv の shim にある**（`~/.nodenv/shims/node`、v24.15.0）。**非対話シェルでは PATH に載らない。** スクリプトから呼ぶときは `export PATH="$HOME/.nodenv/shims:$PATH"` を通す |
+| `node` | **nodenv の shim にある**（`~/.nodenv/shims/node`、**v22.12.0**。nodenv に入っているのはこの1つだけで、`which node` も同じものを返す。2026-09-01 訂正——旧記載 v24.15.0 は実在しなかった。→[詳細設計書](detail.md) §4-10）。**非対話シェルでは PATH に載らない。** スクリプトから呼ぶときは `export PATH="$HOME/.nodenv/shims:$PATH"` を通す |
 | `cargo test` | 動く。現在 `running 0 tests`（ビルド 8.2秒） |
 | L3 の dev サーバ | **別ポートで起動する。** `PORT=3199 SONAR_DB=/tmp/sonar-test.db topcoat dev`。3100 は開発用に空けておく（→[ADR-0005 開発環境](adr/0005-dev-env.md) §3-7） |
 | L4 | **課金が発生する。** むやみに回さない。**1本 $0.00623 の実測**（2026-09-01）。旧記載「$0.0014 前後」は**履歴の累積を数えていなかった**——毎ターン過去のやりとりを全部送り直すので `input_tokens` が積み上がる（1問目1,225 → 4問で5,384） |
@@ -394,7 +394,7 @@ const scope = new Function(src + "\n;return { tidyX: tidyX, NODES: NODES, ROOT: 
 - **項番は数値で入れる。** 総項目数は `=COUNT(A8:A107)` で、数値セルしか数えない
 - **C列（観点）は 正常系 / 異常系 / 境界値**、**G列（結果）は 合格 / 不合格 / 未実施** のドロップダウン。それ以外の語を入れると集計に乗らない
 - **8行目の記入例（`countActive`）は上書きする**
-- 数式の範囲は `A8:A107` なので**上限100項目**。現在77項目で収まっている
+- 数式の範囲は `A8:A107` なので**上限100項目**。現在79項目で収まっている
 - G3（総項目数）・G4〜G6・I3（合格率）は数式。**手で書き換えない**
 
 ---

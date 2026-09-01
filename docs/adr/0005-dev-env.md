@@ -264,7 +264,7 @@ Windows 側で Rust を通すには、VS Installer で C++ ワークロード（
 | 対象 | 自宅の値（2026-08-31 実測） | 照合 |
 |---|---|---|
 | `topcoat-cli` | **0.6.2** | ⚠️ **必須。** `Cargo.toml` が固定しているのは**ライブラリ**であって CLI ではない |
-| `rustc` / `cargo` | 1.95.0 | `edition = "2024"` に 1.85 以上が要る |
+| `rustc` / `cargo` | 1.95.0 | ⚠️ **1.95 以上が要る。** `edition = "2024"` 自体は 1.85 以上だが、`topcoat` と `toasty` が `rust-version = "1.95"` を宣言しており、**1.85〜1.94 は cargo が依存解決の段階で弾く**（2026-09-01 実測。→[詳細設計書](../detail.md) §4-10） |
 | `topcoat` crate | `=0.6.2` | ✅ 照合不要（`Cargo.toml` で完全固定＋`Cargo.lock` が追跡下） |
 | `toasty` crate | `=0.7.0` | ✅ 同上 |
 

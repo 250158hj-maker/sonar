@@ -46,7 +46,7 @@
 | **SSE / WebSocket は `full` フィーチャでサポート済み**。Datastar 統合もある | [GitHub](https://github.com/tokio-rs/topcoat) | 🟢 LLM トークンの逐次表示が実装できる |
 | ロードマップ未実装：認証・バックグラウンドジョブ・**streaming SSR / Suspense**・バリデーション | GitHub README | 🟢 未実装の「streaming SSR」は初期HTMLの分割配信であり、SSE とは別物。混同しない |
 | Toasty は 2024-10 発表・~~現 0.6.x~~ **現 0.10.0**（2026-08-30 再確認）。SQLite / PostgreSQL / MySQL / Turso / DynamoDB 対応 | [tokio.rs](https://tokio.rs/blog/2024-10-23-announcing-toasty) | 🟢 DB層は Topcoat 本体より成熟。DB設計の提出物に耐える |
-| Axum / tokio 上に構築 | [tokio.rs](https://tokio.rs/blog/2026-07-22-announcing-topcoat) | 🟢 `reqwest` がそのまま使える。**AI連携はFW選定の障害にならない** |
+| ~~Axum / tokio 上に構築~~ → **記事の記述であって、実物は違った**（2026-09-01 実測）。`Cargo.lock` に `axum` は **0件**で、`topcoat-router` は `hyper` / `hyper-util` に直接依存する | [tokio.rs](https://tokio.rs/blog/2026-07-22-announcing-topcoat) | 🟢 **結論は変わらない**——tokio 上であることは事実で、`reqwest` はそのまま使える。**AI連携はFW選定の障害にならない**（→[詳細設計書](../detail.md) §4-10） |
 | **Rust→JS に変換できる型の語彙が小さく、複雑なクライアントロジックはすぐ境界に当たる** | [XenoSpectrum](https://xenospectrum.com/en/topcoat-rust-fullstack/) | 🔴 対話的マインドマップが直撃する |
 | ランタイムが `new Function()` を使い、CSP の `unsafe-eval` 禁止環境で動作しない | 同上 | 🟡 学内提出では無害 |
 | **0.1.0→0.5.0 の11日で破壊的変更41件**。最新 0.6.2（2026-08-18）、累計DL 10,385 | [crates.io](https://crates.io/crates/topcoat) | 🟠 バージョン固定で無効化可。残るのは「詰まっても情報が無い」リスク |
@@ -54,7 +54,7 @@
 
 ### リスクの所在
 
-当初「AI連携が Topcoat 採用の障害になるのでは」と疑ったが、**それは誤りだった**。Anthropic API 呼び出しは HTTP + SSE であり、Topcoat は Axum/tokio 上なので `reqwest` がそのまま動く。フレームワークがほぼ関係しない層である。
+当初「AI連携が Topcoat 採用の障害になるのでは」と疑ったが、**それは誤りだった**。Anthropic API 呼び出しは HTTP + SSE であり、Topcoat は tokio 上なので `reqwest` がそのまま動く。フレームワークがほぼ関係しない層である。
 
 **本当のリスクは対話的マインドマップ**である。パン・ズーム・ノード選択は、Topcoat の Rust→JS 語彙制限が唯一直撃する機能だった。
 
@@ -84,7 +84,12 @@ Rust のフルスタックFWとしては Topcoat より成熟している。し�
 
 最も安定しており情報も多い。しかしテンプレート・セッション・アセットパイプライン・Tailwind をすべて自分で組む必要があり、着手コストが高い。
 
-**採らないが、捨てない。** Topcoat は Axum の上に構築されているため、Toasty・`reqwest`・地図のJS・DB設計はそのまま持ち越せる。§6 の縮退先として正式に位置づける。
+**採らないが、捨てない。** 持ち越せるのは土台が同じだからではなく、**Toasty（ORM）・`reqwest`（HTTPクライアント）・地図のJS（ブラウザ側）・DB設計（SQLite のスキーマ）のどれも、Web フレームワークに依存しない層に置いてあるから**である。§6 の縮退先として正式に位置づける。
+
+> **【メモ】2026-09-01：ここは当初「Topcoat は Axum の上に構築されているため」と書いていた**
+> **実物は違った**（`Cargo.lock` に `axum` は0件）。**移行が可能であること自体は変わらない**——
+> 変わったのは根拠が「土台が同じ」から「**持ち越す4つが FW に依存しない層にある**」へ移ったことで、
+> こちらは引用ではなく設計判断である（→[詳細設計書](../detail.md) §4-10）。
 
 ---
 
