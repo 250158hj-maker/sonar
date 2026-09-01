@@ -3,7 +3,7 @@
 
     rm -f /tmp/sonar-test.db
     env -u ANTHROPIC_API_KEY PORT=3199 SONAR_DB=/tmp/sonar-test.db topcoat dev
-    python3 check/http.py
+    python3 check/httpcheck.py
 
 **依存を1つも足さない**（→テスト項目書 §3-2）。`urllib.request`（HTTP）・
 `http.cookiejar`（セッションの作り分け）・`sqlite3`（DB の直読み／直書き）は
@@ -19,15 +19,14 @@
 即座に失敗するので、**課金を発生させずに経路を確かめられる**。
 項番36（実際にデルタが届くか）だけはこの方法では確かめられないので実装しない。
 """
-# 【罠】このファイル名（§3-1 が指定した `check/http.py`）は**標準ライブラリの
-# `http` パッケージを隠す**。スクリプトとして起動すると `sys.path[0]` が
-# `check/` になり、`import http.cookiejar` が自分自身を掴んで
-# `'http' is not a package` で落ちる。標準ライブラリを読む前に自分を外す。
+# 【経緯】当初はテスト項目書 §3-1 の指定どおり `check/http.py` だったが、
+# その名前は**標準ライブラリの `http` パッケージを隠す**。スクリプトとして起動すると
+# `sys.path[0]` が `check/` になり、`import http.cookiejar` が自分自身を掴んで
+# `'http' is not a package` で落ちる。sys.path を書き換える回避策で動かしていたが、
+# **依存を足さないために標準ライブラリを選んだ（§3-2）のに、名前が標準ライブラリと
+# 衝突している**のは筋が通らない。2026-09-01 に改名し、回避策を消した。
 import os
 import sys
-
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != _HERE]
 
 import http.cookiejar
 import importlib.util
