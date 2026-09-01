@@ -123,6 +123,8 @@ impl Drop for DropWatch {
 struct SseState {
     inner: Pin<Box<dyn Stream<Item = reqwest::Result<bytes::Bytes>> + Send>>,
     buf: String,
+    /// マルチバイト文字の途中で TCP チャンクが切れたときの繰り越し。
+    tail: Vec<u8>,
     pending: VecDeque<String>,
     /// これが drop された時点で inner も一緒に落ちる
     _watch: DropWatch,
@@ -181,6 +183,7 @@ impl Questioner for AnthropicQuestioner {
         let state = SseState {
             inner: Box::pin(resp.bytes_stream()),
             buf: String::new(),
+            tail: Vec::new(),
             pending: VecDeque::new(),
             _watch: DropWatch("ストリームが drop された"),
         };
@@ -193,7 +196,7 @@ impl Questioner for AnthropicQuestioner {
 
                 match st.inner.next().await {
                     Some(Ok(chunk)) => {
-                        st.buf.push_str(&String::from_utf8_lossy(&chunk));
+                        push_utf8(&mut st.buf, &mut st.tail, &chunk);
                         drain_frames(&mut st.buf, &mut st.pending);
                     }
                     Some(Err(e)) => return Some((Err(format!("受信に失敗: {e}").into()), st)),
@@ -208,6 +211,31 @@ impl Questioner for AnthropicQuestioner {
 
 /// SSE のフレーム（`\n\n` 区切り）を取り出し、`delta.text` を pending に積む。
 /// usage / stop_reason はここでログに出す（境界からは返さない）。
+/// 受信したバイト列を、**文字を壊さずに** `buf` へ足す。
+///
+/// `String::from_utf8_lossy` を生のチャンクに当ててはいけない。マルチバイト文字の
+/// 途中で TCP チャンクが切れると U+FFFD へ**確定的に置き換えて壊す**——後続チャンクと
+/// 再結合しても戻らない。問いは全文日本語なので、境界はいつでも文字の途中に落ちうる。
+///
+/// 妥当な UTF-8 の前半だけを取り出し、途中で切れた分は `tail` に繰り越して次回へ回す。
+/// **UTF-8 は最長4バイト**なので、それを超えて残るのは境界ではなく本当の壊れである。
+/// そのときは溜め込んで止まるより、落として進む（逐次表示が止まるほうが害が大きい）。
+fn push_utf8(buf: &mut String, tail: &mut Vec<u8>, chunk: &[u8]) {
+    tail.extend_from_slice(chunk);
+    let valid = match std::str::from_utf8(tail) {
+        Ok(s) => s.len(),
+        Err(e) => e.valid_up_to(),
+    };
+    let rest = tail.split_off(valid);
+    // ここまでは妥当と分かっているので lossy でも置換は起きない
+    buf.push_str(&String::from_utf8_lossy(tail));
+    *tail = rest;
+    if tail.len() >= 4 {
+        buf.push_str(&String::from_utf8_lossy(tail));
+        tail.clear();
+    }
+}
+
 fn drain_frames(buf: &mut String, pending: &mut VecDeque<String>) {
     while let Some(pos) = buf.find("\n\n") {
         let frame: String = buf.drain(..pos + 2).collect();
@@ -376,5 +404,30 @@ mod tests {
         let frame = "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\
                      \"usage\":{\"output_tokens\":42}}\n\n";
         assert_eq!(drain(frame).0, Vec::<String>::new());
+    }
+
+    // -- §4-2 push_utf8（チャンク境界） -------------------------------------
+
+    /// 項番78（境界値）：マルチバイト文字の途中でチャンクが切れても壊れない
+    #[test]
+    fn t78_push_utf8_survives_a_split_multibyte_char() {
+        let src = "これは日本語の問いです。";
+        for cut in 1..src.len() {
+            let (mut buf, mut tail) = (String::new(), Vec::new());
+            push_utf8(&mut buf, &mut tail, &src.as_bytes()[..cut]);
+            push_utf8(&mut buf, &mut tail, &src.as_bytes()[cut..]);
+            assert_eq!(buf, src, "cut={cut} で壊れた");
+            assert!(!buf.contains(char::REPLACEMENT_CHARACTER), "cut={cut} で U+FFFD");
+        }
+    }
+
+    /// 項番79（異常系）：4バイトを超えて溜まる本当の壊れでは、止まらずに進む
+    #[test]
+    fn t79_push_utf8_does_not_stall_on_real_garbage() {
+        let (mut buf, mut tail) = (String::new(), Vec::new());
+        push_utf8(&mut buf, &mut tail, &[0xff, 0xfe, 0xfd, 0xfc, 0xfb]);
+        assert!(tail.is_empty(), "壊れたバイトを溜め込んだまま止まっている");
+        push_utf8(&mut buf, &mut tail, "続き".as_bytes());
+        assert!(buf.ends_with("続き"), "壊れの後に続きが出ない: {buf:?}");
     }
 }

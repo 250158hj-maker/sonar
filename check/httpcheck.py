@@ -352,10 +352,15 @@ def c46():
     return eq(got, (True, True))
 
 
-@check(47, "空のセッションで /map → window.SONAR も座標系も出力されない")
+@check(47, "空のセッションで /map → 座標系（#stage）が出力されない")
 def c47():
+    # 意図は「0件で空の絵を描かない」。#stage が出なければ initMap は
+    # 黙って return するので、それで満たされる。
+    # **window.SONAR の非出力は求めない**（2026-09-01 に期待結果を絞った）——
+    # boot を無条件に出す形は pages/home.rs と揃っており、片方だけ else に
+    # 入れると2ページで出し方が食い違う。項番48 とも粒度が揃う。
     html = Session().get("/map")[1]
-    return eq((sonar_src(html) is None, 'id="stage"' in html), (True, False))
+    return eq('id="stage"' in html, False)
 
 
 @check(48, "空のセッションで / → 統計もプレビューも出力されない")

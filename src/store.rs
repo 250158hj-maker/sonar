@@ -14,7 +14,7 @@ use topcoat::{
         Cookie, Cookies, cookies,
         time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339},
     },
-    router::error::{bad_request, forbidden},
+    router::error::{bad_request, forbidden, not_found},
 };
 
 use crate::models::{Conversation, Mood, Node};
@@ -187,12 +187,27 @@ pub async fn append(
 /// 気分はクエリ文字列ではなく**会話の行から読む**。気分をクライアントが
 /// 持っているのは会話の行ができる前だけで（→画面遷移図 §6）、
 /// できてしまえば DB が正典になる。
+/// Toasty の「行が無い」だけを 404 に翻訳する。**それ以外はそのまま上げる。**
+///
+/// 一律に 404 へ倒すと本物の DB エラーまで「無い」に化けて、壊れていることが
+/// 分からなくなる。Toasty は derive が `Error::record_not_found` を生むので、
+/// `is_record_not_found()` で「行が無い」と「DB が壊れた」を区別できる。
+fn missing_to_404(e: toasty::Error) -> topcoat::Error {
+    if e.is_record_not_found() { not_found().into() } else { e.into() }
+}
+
 pub async fn path_to(cx: &Cx, node_id: u64) -> Result<(Mood, Vec<Turn>)> {
     let mut db = db(cx);
     let sid = session_id(cx);
 
-    let node = Node::get_by_id(&mut db, node_id).await?;
-    let cv = Conversation::get_by_id(&mut db, node.conversation_id).await?;
+    // 行が無いのは**クライアント側の誤り**なので 404 が筋。`?` でそのまま上げると
+    // topcoat が 500 に丸め、「サーバが壊れた」と読めてしまう（→テスト項目書 項番40）。
+    let node = Node::get_by_id(&mut db, node_id)
+        .await
+        .map_err(missing_to_404)?;
+    let cv = Conversation::get_by_id(&mut db, node.conversation_id)
+        .await
+        .map_err(missing_to_404)?;
     if cv.session_id != sid {
         // 他人の履歴がプロンプトに入るのを止める
         return Err(forbidden().into());
