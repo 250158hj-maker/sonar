@@ -17,7 +17,9 @@
 `/talk/question` を叩くが、いずれも LLM に到達する前（クエリ検証・所有確認・
 `path_to`）で決着する。キーが無ければ `AnthropicQuestioner::from_env()` が
 即座に失敗するので、**課金を発生させずに経路を確かめられる**。
-項番36（実際にデルタが届くか）だけはこの方法では確かめられないので実装しない。
+項番36（実際にデルタが届くか）だけはこの方法では確かめられない。**キー付きで起動した
+サーバに対し、項番を明示したときだけ走る**ように分けてある（→`BILLED`）。既定の一括実行で
+黙って飛ばすのではなく、飛ばしたことを最後に印字する。
 """
 # 【経緯】当初はテスト項目書 §3-1 の指定どおり `check/http.py` だったが、
 # その名前は**標準ライブラリの `http` パッケージを隠す**。スクリプトとして起動すると
@@ -44,6 +46,11 @@ BASE = os.environ.get("SONAR_TEST_BASE", "http://127.0.0.1:3199")
 DB = os.environ.get("SONAR_DB", "/tmp/sonar-test.db")
 
 CHECKS = []
+
+# 実行すると Anthropic に課金が発生する項番。**既定の一括実行では走らせない。**
+# 他の項番はキー無しのサーバで走らせる前提（→docstring）で、混ぜると
+# 「キーが無いから落ちた」のか「経路が壊れている」のかが見分けられなくなる。
+BILLED = {36}
 
 
 def check(no, desc):
@@ -94,6 +101,36 @@ class Session:
 
     def get(self, path, timeout=15):
         return self.request("GET", path, timeout=timeout)
+
+    def sse(self, path, timeout=30):
+        """SSE を最後まで読み、`(event, data)` を**受信順のまま**返す。
+
+        `EventSource` と同じ解釈をする——`\n\n` で1イベント、`event:` が無ければ
+        `message`、`:` で始まる行（KeepAlive のコメント）は捨てる。
+        **並べ替えない。** 順序そのものが検査対象だからである（→項番36）。
+        """
+        req = urllib.request.Request(BASE + path, method="GET")
+        try:
+            resp = self.opener.open(req, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            hint = "（サーバに ANTHROPIC_API_KEY が届いていない可能性）" if e.code >= 500 else ""
+            raise RuntimeError(
+                f"SSE が始まる前に HTTP {e.code}{hint}: "
+                f"{e.read().decode('utf-8', 'replace')[:200]}") from None
+
+        events, ev, data = [], None, []
+        with resp as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if line == "":
+                    if ev is not None or data:
+                        events.append((ev or "message", "\n".join(data)))
+                    ev, data = None, []
+                elif line.startswith("event:"):
+                    ev = line[6:].strip()
+                elif line.startswith("data:"):
+                    data.append(line[5:].removeprefix(" "))
+        return events
 
     # -- 組み立て用（検査そのものではない） --------------------------------
 
@@ -245,8 +282,29 @@ def c35():
 
 
 # ===========================================================================
-# §4-6 GET /talk/question（項番37〜40。項番36 は課金あり＝未実装）
+# §4-6 GET /talk/question（項番36〜40。項番36 だけ課金あり＝既定では走らない）
 # ===========================================================================
+
+@check(36, "SSE に delta が1件以上届き、最後が done（課金あり）")
+def c36():
+    """**唯一 API に到達する項番。** 1回 $0.0002 前後。
+
+    見るのは3つ——`delta` が1件以上か／**末尾が `done` か**／`failed` が無いか。
+    末尾まで見るのは、`done` の有無だけでは足りないからである。実装は
+    `deltas.chain(done)` なので、**`failed` を出したあとにも `done` が続く**
+    （→`src/pages/talk.rs`）。「`done` が来た＝成功」は成り立たない。
+    """
+    s = Session()
+    _, node = s.start(mood="fog", answer="断りたかったのに、その場で言えなくて引き受けてしまった")
+    evs = s.sse(f"/talk/question?node={node}")
+    names = [e for e, _ in evs]
+    text = "".join(json.loads(d) for e, d in evs if e == "delta")
+    n_delta = names.count("delta")
+    tail = names[-1] if names else None
+    other = sorted(set(names) - {"delta", "done"})
+    ok = n_delta >= 1 and tail == "done" and "failed" not in names
+    return ok, f"delta={n_delta} 末尾={tail} 他={other} 問い={text!r}"
+
 
 @check(37, "node を付けずに GET → 400")
 def c37():
@@ -417,10 +475,16 @@ def main():
         sys.exit(f"❌ DB が無い: {DB}（SONAR_DB がサーバと揃っているか確認する）")
 
     only = {int(a) for a in sys.argv[1:] if a.isdigit()}
-    fails = []
+    ran, fails, skipped = 0, [], []
     for no, desc, fn in CHECKS:
         if only and no not in only:
             continue
+        # 課金ありは項番を明示したときだけ走らせる。**黙って飛ばさない**——
+        # 落とした項番を印字しない検査は「全部通った」と読めてしまう
+        if no in BILLED and not only:
+            skipped.append(no)
+            continue
+        ran += 1
         try:
             ok, actual = fn()
         except Exception as e:
@@ -430,8 +494,13 @@ def main():
             print(f"          実際: {actual}")
             fails.append((no, desc, actual))
 
-    ran = len(only) if only else len(CHECKS)
     print(f"\n{ran - len(fails)}/{ran} 合格")
+    if skipped:
+        nos = " ".join(str(n) for n in skipped)
+        listed = "・".join(str(n) for n in skipped)
+        print(f"⏭  課金ありのため未実行: 項番{listed}\n"
+              f"   走らせるなら ANTHROPIC_API_KEY が届くサーバを起こして "
+              f"`python3 check/httpcheck.py {nos}`")
     if fails:
         print("不合格:")
         for no, desc, actual in fails:
