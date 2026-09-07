@@ -32,6 +32,7 @@ Rust / Topcoat / Toasty（SQLite）/ Anthropic Claude Haiku 4.5。
 | 実装（Rust / `src/script.js` / `src/style.css`） | **このリポジトリ** | Vault の `mock/` は凍結済み。触らない |
 | system プロンプト | **`src/prompt/system.md`** | Vault ではなくここ（`check/run.py` も実行時にこれを読む） |
 | 設計の意図・決定の根拠・進行状態 | **Vault** | `docs/` にあるのは写し |
+| リポジトリ直下の `README.md` | **このリポジトリ** | **`docs/` と違って生成物ではない。手で直してよい。** クローンした人が動かすまで（前提・起動・検査・データの扱い）を持ち、判断の根拠は `docs/` へ委譲する |
 
 ## 書くときの約束
 
