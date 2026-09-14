@@ -18,6 +18,22 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PROMPT = ROOT / "src" / "prompt" / "system.md"
 SHORT_ANSWER_CHARS = 20
+
+
+def _model():
+    """モデルIDの正典は `src/questioner.rs` の1行。ここに写しを置かない。
+
+    写しを持つと、本番のモデルを上げたときに**検査だけが前のモデルを測り続ける**
+    ——しかも出力は日本語として自然なので、結果を見ても気づけない。
+    2026-09-14 に Haiku 4.5 → Sonnet 5 へ上げたとき、実際に4箇所へ散っていた。"""
+    src = (ROOT / "src" / "questioner.rs").read_text(encoding="utf-8")
+    m = re.search(r'"model":\s*"([^"]+)"', src)
+    if not m:
+        sys.exit("src/questioner.rs からモデルIDを読めない")
+    return m.group(1)
+
+
+MODEL = _model()
 TURNS = 5
 
 OPENER = {
@@ -90,7 +106,7 @@ def system_prompt(steer):
 
 def ask(system, messages):
     """stream:true で叩き、delta.text を連結して1文字ずつ表示する。"""
-    payload = json.dumps({"model": "claude-haiku-4-5", "max_tokens": 300, "stream": True,
+    payload = json.dumps({"model": MODEL, "max_tokens": 300, "stream": True,
                           "system": system, "messages": messages}, ensure_ascii=False)
     req = urllib.request.Request(
         "https://api.anthropic.com/v1/messages", data=payload.encode("utf-8"), method="POST",

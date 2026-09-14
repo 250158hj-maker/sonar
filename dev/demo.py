@@ -54,6 +54,15 @@ STEER = {
 }
 
 
+def model():
+    """モデルIDの正典は `src/questioner.rs`（→同ファイルのコメント）。ここに写しを置かない。"""
+    import re
+    m = re.search(r'"model":\s*"([^"]+)"', QUESTIONER_RS.read_text(encoding="utf-8"))
+    if not m:
+        sys.exit("src/questioner.rs からモデルIDを読めない")
+    return m.group(1)
+
+
 def assert_steer_matches_rust():
     """写した指示文が `src/questioner.rs` に実在することを確かめる。
 
@@ -115,7 +124,7 @@ def ask(history, steer_text):
         messages.append({"role": "user", "content": t["answer"]})
 
     body = {
-        "model": "claude-haiku-4-5",
+        "model": model(),
         "max_tokens": 300,
         "system": SYSTEM_MD.read_text(encoding="utf-8").replace("{steer}", steer_text),
         "messages": messages,
@@ -134,6 +143,7 @@ def ask(history, steer_text):
 def cmd_grow(args):
     assert_steer_matches_rust()
     seed = load_seed()
+    seed["model"] = model()      # 設定ではなく「何で作ったか」の記録
     made = 0
     for i, cv in enumerate(seed["conversations"], 1):
         turns = cv["turns"]

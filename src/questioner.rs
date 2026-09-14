@@ -147,8 +147,11 @@ impl Questioner for AnthropicQuestioner {
 
         // --- パラメータ（→設計書 プロンプト §6）---------------------------
         // temperature / thinking / output_config / cache_control は付けない（§11）。
+        // モデルIDの**正典はこの行**。`check/run.py` と `dev/demo.py` は
+        // 写しを持たず、ここを読み出す（→ADR-0002 §5）。写しを置くと
+        // 「検査だけが前のモデルを測り続ける」状態が静かに作れてしまう。
         let body = serde_json::json!({
-            "model": "claude-haiku-4-5",
+            "model": "claude-sonnet-5",
             "max_tokens": 300,
             "stream": true,
             "system": SYSTEM_PROMPT.replace("{steer}", steer),

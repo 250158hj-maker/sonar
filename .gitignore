@@ -4,3 +4,4 @@
 /demo.db
 /demo.db-*
 /dev/.demo_sid
+__pycache__/
